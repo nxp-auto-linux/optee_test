@@ -2630,6 +2630,7 @@ static void xtest_tee_test_4005(ADBG_Case_t *c)
 	size_t out_offs2 = 0;
 	uint32_t ret_orig = 0;
 	size_t n = 0;
+	size_t expected_out = 0;
 
 	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
 		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
@@ -2712,9 +2713,14 @@ static void xtest_tee_test_4005(ADBG_Case_t *c)
 						&out_size)))
 					goto out;
 				out_offs += out_size;
-				if (ae_cases[n].algo == TEE_ALG_AES_GCM)
+				if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
+					expected_out = ae_cases[n].in_incr;
+					#if CFG_NXP_HSE
+					expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
+					#endif
 					ADBG_EXPECT_COMPARE_UNSIGNED(c,
-					  out_size, ==, ae_cases[n].in_incr);
+					  out_size, ==, expected_out);
+				}
 			}
 		} else {
 			if (ae_cases[n].ctx != NULL) {
@@ -2725,9 +2731,14 @@ static void xtest_tee_test_4005(ADBG_Case_t *c)
 						&out_size)))
 					goto out;
 				out_offs += out_size;
-				if (ae_cases[n].algo == TEE_ALG_AES_GCM)
+				if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
+					expected_out = ae_cases[n].in_incr;
+					#if CFG_NXP_HSE
+					expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
+					#endif
 					ADBG_EXPECT_COMPARE_UNSIGNED(c,
-					  out_size, ==, ae_cases[n].in_incr);
+					  out_size, ==, expected_out);
+				}
 			}
 		}
 
