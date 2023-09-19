@@ -48,6 +48,7 @@ static const uint8_t hkdf_a1_okm[] = {
 	0x58, 0x65
 };
 
+#if !defined(CFG_NXP_HSE) || CFG_HSE_PREMIUM_FW
 /* A.2 SHA-256 */
 static const uint8_t hkdf_a2_ikm[] = {
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -101,7 +102,7 @@ static const uint8_t hkdf_a2_okm[] = {
 	0xc1, 0x4c, 0x01, 0xd5, 0xc1, 0xf3, 0x43, 0x4f,
 	0x1d, 0x87
 };
-
+#endif
 /* A.3 SHA-256 */
 #define hkdf_a3_ikm hkdf_a1_ikm
 static const uint8_t hkdf_a3_salt[] = {};
@@ -142,6 +143,7 @@ static const uint8_t hkdf_a4_okm[] = {
 	0xf8, 0x96
 };
 
+#if !defined(CFG_NXP_HSE) || CFG_HSE_PREMIUM_FW
 /* A.5 SHA-1 */
 #define hkdf_a5_ikm hkdf_a2_ikm
 #define hkdf_a5_salt hkdf_a2_salt
@@ -159,6 +161,7 @@ static const uint8_t hkdf_a5_okm[] = {
 	0x00, 0xe2, 0xcf, 0xf0, 0xd0, 0x90, 0x0b, 0x52,
 	0xd3, 0xb4
 };
+#endif
 
 /* A.6 SHA-1 */
 #define hkdf_a6_ikm hkdf_a1_ikm
@@ -337,16 +340,21 @@ static void xtest_test_derivation_hkdf(ADBG_Case_t *c, TEEC_Session *session)
 	} hkdf_cases[] = {
 		TEST_HKDF_DATA("A.1 (SHA-256)",
 			       TEE_ALG_HKDF_SHA256_DERIVE_KEY, a1, false),
+
+#if !defined(CFG_NXP_HSE) || CFG_HSE_PREMIUM_FW
 		TEST_HKDF_DATA("A.2 (SHA-256)",
 			       TEE_ALG_HKDF_SHA256_DERIVE_KEY, a2, false),
+#endif
 		TEST_HKDF_DATA("A.3 (SHA-256) [1]",
 			       TEE_ALG_HKDF_SHA256_DERIVE_KEY, a3, false),
 		TEST_HKDF_DATA("A.3 (SHA-256) [2]",
 			       TEE_ALG_HKDF_SHA256_DERIVE_KEY, a3, true),
 		TEST_HKDF_DATA("A.4 (SHA-1)",
 			       TEE_ALG_HKDF_SHA1_DERIVE_KEY, a4, false),
+#if !defined(CFG_NXP_HSE) || CFG_HSE_PREMIUM_FW
 		TEST_HKDF_DATA("A.5 (SHA-1)",
 			       TEE_ALG_HKDF_SHA1_DERIVE_KEY, a5, false),
+#endif
 		TEST_HKDF_DATA("A.6 (SHA-1) [1]",
 			       TEE_ALG_HKDF_SHA1_DERIVE_KEY, a6, false),
 		TEST_HKDF_DATA("A.6 (SHA-1) [2]",
