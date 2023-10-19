@@ -6489,6 +6489,60 @@ static struct derive_key_ecdh_t {
 	const uint8_t *private;	/* private key == dIUT */
 	const uint8_t *out;		/* expected result - ZIUT */
 } const derive_key_ecdh[] = {
+#if CFG_NXP_HSE_ECDH_DRV
+	{
+		.level    = 0,
+		.algo     = TEE_ALG_ECDH_P192,
+		.curve    = TEE_ECC_CURVE_NIST_P192,
+		.keysize  = 192,
+		.public_x = testvector_192_public_x,
+		.public_y = testvector_192_public_y,
+		.private  = testvector_192_private,
+		.out      = testvector_192_out,
+	},
+	{
+		.level    = 0,
+		.algo     = TEE_ALG_ECDH_P224,
+		.curve    = TEE_ECC_CURVE_NIST_P224,
+		.keysize  = 224,
+		.public_x = testvector_224_public_x,
+		.public_y = testvector_224_public_y,
+		.private  = testvector_224_private,
+		.out      = testvector_224_out,
+	},
+	{
+		.level    = 0,
+		.algo     = TEE_ALG_ECDH_P256,
+		.curve    = TEE_ECC_CURVE_NIST_P256,
+		.keysize  = 256,
+		.public_x = testvector_256_public_x,
+		.public_y = testvector_256_public_y,
+		.private  = testvector_256_private,
+		.out      = testvector_256_out,
+	},
+#if CFG_HSE_PREMIUM_FW
+	{
+		.level    = 0,
+		.algo     = TEE_ALG_ECDH_P384,
+		.curve    = TEE_ECC_CURVE_NIST_P384,
+		.keysize  = 384,
+		.public_x = testvector_384_public_x,
+		.public_y = testvector_384_public_y,
+		.private  = testvector_384_private,
+		.out      = testvector_384_out,
+	},
+	{
+		.level    = 0,
+		.algo     = TEE_ALG_ECDH_P521,
+		.curve    = TEE_ECC_CURVE_NIST_P521,
+		.keysize  = 521,
+		.public_x = testvector_521_public_x,
+		.public_y = testvector_521_public_y,
+		.private  = testvector_521_private,
+		.out      = testvector_521_out,
+	},
+#endif
+#else
 	/* [P-192] */
 	{
 		.level    = 0,
@@ -7744,6 +7798,7 @@ static struct derive_key_ecdh_t {
 		.private  = nist_kas_ecc_cdh_testvector_125_private,
 		.out      = nist_kas_ecc_cdh_testvector_125_out,
 	},
+#endif
 	/* [K-163] - GP NOT SUPPORTED */
 	/* [K-233] - GP NOT SUPPORTED */
 	/* [K-283] - GP NOT SUPPORTED */
