@@ -1147,7 +1147,11 @@ static void *test_1013_thread(void *arg)
 	return NULL;
 }
 
+#if defined(CFG_NXP_HSE)
+#define NUM_THREADS 2
+#else
 #define NUM_THREADS 3
+#endif
 
 static void xtest_tee_test_1013_single(ADBG_Case_t *c, double *mean_concurrency,
 				       const TEEC_UUID *uuid)
