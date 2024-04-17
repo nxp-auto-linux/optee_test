@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright (c) 2021, SumUp Services GmbH
- * Copyright 2023 NXP
+ * Copyright 2023-2024 NXP
  */
 
 #include <stdio.h>
@@ -1380,38 +1380,24 @@ static const struct xtest_mac_case mac_cases[] = {
 		       13, mac_data_sm3_d32_in, mac_data_sm3_d32_out),
 };
 
-static void xtest_tee_test_4002(ADBG_Case_t *c)
+static TEEC_Result xtest_mac_operation(ADBG_Case_t *c, int n, TEEC_Session session,
+						TEE_OperationHandle op1, TEE_OperationHandle op2,
+						TEE_OperationHandle op3, TEE_ObjectHandle key_handle,
+						uint8_t *key, uint32_t key_len, uint32_t key_type)
 {
-	TEEC_Session session = { };
-	TEE_OperationHandle op1 = TEE_HANDLE_NULL;
-	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
-	TEE_OperationHandle op3 = TEE_HANDLE_NULL;
-	TEE_ObjectHandle key_handle = TEE_HANDLE_NULL;
 	uint8_t out[64] = { };
 	size_t out_size = 0;
-	uint32_t ret_orig = 0;
-	size_t n = 0;
-
-	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
-					&ret_orig)))
-		return;
-
-	for (n = 0; n < ARRAY_SIZE(mac_cases); n++) {
-		TEE_Attribute key_attr = { };
-		size_t key_size = 0;
-		size_t offs = 0;
-
-		Do_ADBG_BeginSubCase(c, "MAC case %d algo 0x%x",
-				     (int)n, (unsigned int)mac_cases[n].algo);
+	TEE_Attribute key_attr = { };
+	size_t key_size = 0;
+	size_t offs = 0;
 
 		key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
-		key_attr.content.ref.buffer = (void *)mac_cases[n].key;
-		key_attr.content.ref.length = mac_cases[n].key_len;
+		key_attr.content.ref.buffer = (void *)key;
+		key_attr.content.ref.length = key_len;
 
 		key_size = key_attr.content.ref.length * 8;
-		if (mac_cases[n].key_type == TEE_TYPE_DES ||
-		    mac_cases[n].key_type == TEE_TYPE_DES3)
+		if (key_type == TEE_TYPE_DES ||
+		    key_type == TEE_TYPE_DES3)
 			/* Exclude parity in bit size of key */
 			key_size -= key_size / 8;
 
@@ -1432,7 +1418,7 @@ static void xtest_tee_test_4002(ADBG_Case_t *c)
 
 		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
 			ta_crypt_cmd_allocate_transient_object(c, &session,
-				mac_cases[n].key_type, key_size, &key_handle)))
+				key_type, key_size, &key_handle)))
 			goto out;
 
 		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
@@ -1522,6 +1508,36 @@ static void xtest_tee_test_4002(ADBG_Case_t *c)
 			ta_crypt_cmd_free_operation(c, &session, op3)))
 			goto out;
 
+	return TEEC_SUCCESS;
+
+out:
+	return TEEC_ERROR_GENERIC;
+}
+static void xtest_tee_test_4002(ADBG_Case_t *c)
+{
+	TEEC_Session session = { };
+	TEE_OperationHandle op1 = TEE_HANDLE_NULL;
+	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
+	TEE_OperationHandle op3 = TEE_HANDLE_NULL;
+	TEE_ObjectHandle key_handle = TEE_HANDLE_NULL;
+	uint32_t ret_orig = 0;
+	uint32_t n = 0;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
+					&ret_orig)))
+		return;
+
+	for (n = 0; n < ARRAY_SIZE(mac_cases); n++) {
+		Do_ADBG_BeginSubCase(c, "MAC case %d algo 0x%x",
+				     (int)n, (unsigned int)mac_cases[n].algo);
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_mac_operation(c, n, session, op1, op2, op3,
+		    key_handle, (uint8_t *)mac_cases[n].key, mac_cases[n].key_len,
+			mac_cases[n].key_type)))
+			goto out;
+
+		key_handle = TEE_HANDLE_NULL;
 		Do_ADBG_EndSubCase(c, NULL);
 	}
 out:
@@ -2303,6 +2319,159 @@ static const struct xtest_ciph_case ciph_cases[] = {
 			ciph_data_sm4_ctr_a252_out),
 };
 
+static TEEC_Result xtest_ciph_operation(ADBG_Case_t *c, int n, TEEC_Session session,
+			 TEE_OperationHandle op, TEE_OperationHandle op2,
+			 TEE_ObjectHandle key1_handle, TEE_ObjectHandle key2_handle,
+			 uint8_t *key1, uint32_t key1_len, uint8_t *key2,
+			 uint32_t key2_len, uint32_t key_type)
+{
+	TEE_Attribute key_attr = { };
+	size_t key_size = 0;
+	size_t op_key_size = 0;
+	uint8_t out[2048] = { };
+	size_t out_size = 0;
+	size_t out_offs = 0;
+	size_t out_offs2 = 0;
+
+	key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
+	key_attr.content.ref.buffer = (void *)key1;
+	key_attr.content.ref.length = key1_len;
+	key_size = key_attr.content.ref.length * 8;
+	if (key_type == TEE_TYPE_DES ||
+	    key_type == TEE_TYPE_DES3)
+		/* Exclude parity in bit size of key */
+		key_size -= key_size / 8;
+
+	op_key_size = key_size;
+	if (key2 != NULL)
+		op_key_size *= 2;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_operation(c, &session, &op,
+			ciph_cases[n].algo, ciph_cases[n].mode,
+			op_key_size)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_operation(c, &session, &op2,
+			ciph_cases[n].algo, ciph_cases[n].mode,
+			op_key_size)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_transient_object(c, &session,
+			key_type, key_size,
+			&key1_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_populate_transient_object(c, &session,
+			key1_handle, &key_attr, 1)))
+		goto out;
+
+	if (ciph_cases[n].key2 != NULL) {
+		key_attr.content.ref.buffer =
+			(void *)ciph_cases[n].key2;
+		key_attr.content.ref.length = ciph_cases[n].key2_len;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_transient_object(c,
+				&session, key_type,
+				key_attr.content.ref.length * 8,
+				&key2_handle)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_populate_transient_object(c,
+				&session, key2_handle, &key_attr, 1)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key2(c, &session, op,
+				key1_handle, key2_handle)))
+			goto out;
+		} else {
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_set_operation_key(c, &session, op,
+					key1_handle)))
+				goto out;
+		}
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_transient_object(c, &session,
+			key1_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_transient_object(c, &session,
+			key2_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_cipher_init(c, &session, op,
+			ciph_cases[n].iv, ciph_cases[n].iv_len)))
+		goto out;
+
+	out_offs = 0;
+	out_size = sizeof(out);
+	memset(out, 0, sizeof(out));
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_cipher_update(c, &session, op,
+			ciph_cases[n].in, ciph_cases[n].in_incr, out,
+			&out_size)))
+		goto out;
+
+	if (ciph_cases[n].algo == TEE_ALG_AES_CTR)
+		ADBG_EXPECT_COMPARE_UNSIGNED(c, out_size, ==,
+			ciph_cases[n].in_incr);
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_copy_operation(c, &session, op2, op)))
+		goto out;
+
+	out_offs += out_size;
+	out_size = sizeof(out) - out_offs;
+	out_offs2 = out_offs;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_cipher_do_final(c, &session, op,
+			ciph_cases[n].in + ciph_cases[n].in_incr,
+			ciph_cases[n].in_len - ciph_cases[n].in_incr,
+			out + out_offs,
+			&out_size)))
+		goto out;
+
+	out_offs += out_size;
+
+	(void)ADBG_EXPECT_BUFFER(c, ciph_cases[n].out,
+				 ciph_cases[n].out_len, out, out_offs);
+
+	/* test on the copied op2 */
+	out_size = sizeof(out) - out_offs2;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_cipher_do_final(c, &session, op2,
+			ciph_cases[n].in + ciph_cases[n].in_incr,
+			ciph_cases[n].in_len - ciph_cases[n].in_incr,
+			out + out_offs2,
+			&out_size)))
+		goto out;
+
+	out_offs2 += out_size;
+
+	ADBG_EXPECT_BUFFER(c, ciph_cases[n].out, ciph_cases[n].out_len,
+			   out, out_offs2);
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, &session, op)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, &session, op2)))
+		goto out;
+	return TEEC_SUCCESS;
+out:
+	return TEEC_ERROR_GENERIC;
+}
 static void xtest_tee_test_4003(ADBG_Case_t *c)
 {
 	TEEC_Session session = { };
@@ -2310,10 +2479,6 @@ static void xtest_tee_test_4003(ADBG_Case_t *c)
 	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
 	TEE_ObjectHandle key1_handle = TEE_HANDLE_NULL;
 	TEE_ObjectHandle key2_handle = TEE_HANDLE_NULL;
-	uint8_t out[2048] = { };
-	size_t out_size = 0;
-	size_t out_offs = 0;
-	size_t out_offs2 = 0;
 	uint32_t ret_orig = 0;
 	size_t n = 0;
 
@@ -2323,9 +2488,6 @@ static void xtest_tee_test_4003(ADBG_Case_t *c)
 		return;
 
 	for (n = 0; n < ARRAY_SIZE(ciph_cases); n++) {
-		TEE_Attribute key_attr = { };
-		size_t key_size = 0;
-		size_t op_key_size = 0;
 
 		switch (ciph_cases[n].algo) {
 		case TEE_ALG_SM4_CTR:
@@ -2345,146 +2507,14 @@ static void xtest_tee_test_4003(ADBG_Case_t *c)
 				     (int)n, (unsigned int)ciph_cases[n].algo,
 				     (int)ciph_cases[n].line);
 
-		key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
-		key_attr.content.ref.buffer = (void *)ciph_cases[n].key1;
-		key_attr.content.ref.length = ciph_cases[n].key1_len;
-
-		key_size = key_attr.content.ref.length * 8;
-		if (ciph_cases[n].key_type == TEE_TYPE_DES ||
-		    ciph_cases[n].key_type == TEE_TYPE_DES3)
-			/* Exclude parity in bit size of key */
-			key_size -= key_size / 8;
-
-		op_key_size = key_size;
-		if (ciph_cases[n].key2 != NULL)
-			op_key_size *= 2;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_operation(c, &session, &op,
-				ciph_cases[n].algo, ciph_cases[n].mode,
-				op_key_size)))
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_ciph_operation(c, n, session, op,
+			 op2, key1_handle, key2_handle, (uint8_t *)ciph_cases[n].key1,
+		     ciph_cases[n].key1_len, (uint8_t *)ciph_cases[n].key2,
+			 ciph_cases[n].key2_len, ciph_cases[n].key_type)))
 			goto out;
 
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_operation(c, &session, &op2,
-				ciph_cases[n].algo, ciph_cases[n].mode,
-				op_key_size)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_transient_object(c, &session,
-				ciph_cases[n].key_type, key_size,
-				&key1_handle)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_populate_transient_object(c, &session,
-				key1_handle, &key_attr, 1)))
-			goto out;
-
-		if (ciph_cases[n].key2 != NULL) {
-			key_attr.content.ref.buffer =
-				(void *)ciph_cases[n].key2;
-			key_attr.content.ref.length = ciph_cases[n].key2_len;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_transient_object(c,
-					&session, ciph_cases[n].key_type,
-					key_attr.content.ref.length * 8,
-					&key2_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_populate_transient_object(c,
-					&session, key2_handle, &key_attr, 1)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key2(c, &session, op,
-					key1_handle, key2_handle)))
-				goto out;
-		} else {
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					key1_handle)))
-				goto out;
-		}
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_transient_object(c, &session,
-				key1_handle)))
-			goto out;
 		key1_handle = TEE_HANDLE_NULL;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_transient_object(c, &session,
-				key2_handle)))
-			goto out;
 		key2_handle = TEE_HANDLE_NULL;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_cipher_init(c, &session, op,
-				ciph_cases[n].iv, ciph_cases[n].iv_len)))
-			goto out;
-
-		out_offs = 0;
-		out_size = sizeof(out);
-		memset(out, 0, sizeof(out));
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_cipher_update(c, &session, op,
-				ciph_cases[n].in, ciph_cases[n].in_incr, out,
-				&out_size)))
-			goto out;
-
-		if (ciph_cases[n].algo == TEE_ALG_AES_CTR)
-			ADBG_EXPECT_COMPARE_UNSIGNED(c, out_size, ==,
-				ciph_cases[n].in_incr);
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_copy_operation(c, &session, op2, op)))
-			goto out;
-
-		out_offs += out_size;
-		out_size = sizeof(out) - out_offs;
-		out_offs2 = out_offs;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_cipher_do_final(c, &session, op,
-				ciph_cases[n].in + ciph_cases[n].in_incr,
-				ciph_cases[n].in_len - ciph_cases[n].in_incr,
-				out + out_offs,
-				&out_size)))
-			goto out;
-
-		out_offs += out_size;
-
-		(void)ADBG_EXPECT_BUFFER(c, ciph_cases[n].out,
-					 ciph_cases[n].out_len, out, out_offs);
-
-		/* test on the copied op2 */
-		out_size = sizeof(out) - out_offs2;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_cipher_do_final(c, &session, op2,
-				ciph_cases[n].in + ciph_cases[n].in_incr,
-				ciph_cases[n].in_len - ciph_cases[n].in_incr,
-				out + out_offs2,
-				&out_size)))
-			goto out;
-
-		out_offs2 += out_size;
-
-		ADBG_EXPECT_BUFFER(c, ciph_cases[n].out, ciph_cases[n].out_len,
-				   out, out_offs2);
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_operation(c, &session, op)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_operation(c, &session, op2)))
-			goto out;
-
 		Do_ADBG_EndSubCase(c, NULL);
 	}
 out:
@@ -2617,20 +2647,226 @@ static const struct xtest_ae_case ae_cases[] = {
 #endif
 };
 
+static TEEC_Result xtest_aead_operation(ADBG_Case_t *c, int n, TEEC_Session session,
+					TEE_OperationHandle op, TEE_OperationHandle op2,
+					TEE_ObjectHandle key_handle, uint8_t *key, uint32_t key_len,
+					uint32_t key_type)
+{
+	TEE_Attribute key_attr = { };
+	uint8_t out[512] = { };
+	size_t out_size = 0;
+	size_t out_offs = 0;
+	size_t out_offs2 = 0;
+	size_t expected_out = 0;
+
+	key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
+	key_attr.content.ref.buffer = (void *)key;
+	key_attr.content.ref.length = key_len;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_operation(c, &session, &op,
+			ae_cases[n].algo, ae_cases[n].mode,
+			key_attr.content.ref.length * 8)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_operation(c, &session, &op2,
+			ae_cases[n].algo, ae_cases[n].mode,
+			key_attr.content.ref.length * 8)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_transient_object(c, &session,
+			key_type,
+			key_attr.content.ref.length * 8,
+			&key_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_populate_transient_object(c, &session,
+			key_handle, &key_attr, 1)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_set_operation_key(c, &session, op,
+			key_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_transient_object(c, &session,
+			key_handle)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_ae_init(c, &session, op, ae_cases[n].nonce,
+		ae_cases[n].nonce_len, ae_cases[n].tag_len,
+		ae_cases[n].aad_len, ae_cases[n].ptx_len)))
+		goto out;
+
+	if (ae_cases[n].aad != NULL) {
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_update_aad(c, &session, op,
+				ae_cases[n].aad, ae_cases[n].aad_incr)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_update_aad(c, &session, op,
+				ae_cases[n].aad + ae_cases[n].aad_incr,
+				ae_cases[n].aad_len -
+					ae_cases[n].aad_incr)))
+			goto out;
+	}
+
+	out_offs = 0;
+	out_size = sizeof(out);
+	memset(out, 0, sizeof(out));
+	if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
+		if (ae_cases[n].ptx != NULL) {
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_ae_update(c, &session, op,
+					ae_cases[n].ptx,
+					ae_cases[n].in_incr, out,
+					&out_size)))
+				goto out;
+			out_offs += out_size;
+			if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
+				expected_out = ae_cases[n].in_incr;
+				#if CFG_NXP_HSE
+				expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
+				#endif
+				ADBG_EXPECT_COMPARE_UNSIGNED(c,
+				  out_size, ==, expected_out);
+			}
+		}
+	} else {
+		if (ae_cases[n].ctx != NULL) {
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_ae_update(c, &session, op,
+					ae_cases[n].ctx,
+					ae_cases[n].in_incr, out,
+					&out_size)))
+				goto out;
+			out_offs += out_size;
+			if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
+				expected_out = ae_cases[n].in_incr;
+				#if CFG_NXP_HSE
+				expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
+				#endif
+				ADBG_EXPECT_COMPARE_UNSIGNED(c,
+				  out_size, ==, expected_out);
+			}
+		}
+	}
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_copy_operation(c, &session, op2, op)))
+		goto out;
+
+	out_size = sizeof(out) - out_offs;
+	out_offs2 = out_offs;
+	if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
+		uint8_t out_tag[64];
+		size_t out_tag_len = MIN(sizeof(out_tag),
+					 ae_cases[n].tag_len);
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_encrypt_final(c, &session, op,
+				ae_cases[n].ptx + ae_cases[n].in_incr,
+				ae_cases[n].ptx_len -
+					ae_cases[n].in_incr,
+				out + out_offs,
+				&out_size, out_tag, &out_tag_len)))
+			goto out;
+
+		(void)ADBG_EXPECT_BUFFER(c,
+			ae_cases[n].tag, ae_cases[n].tag_len, out_tag,
+			out_tag_len);
+
+		out_offs += out_size;
+
+		(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ctx,
+			ae_cases[n].ctx_len, out, out_offs);
+	} else {
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_decrypt_final(c, &session, op,
+				ae_cases[n].ctx + ae_cases[n].in_incr,
+				ae_cases[n].ctx_len -
+					ae_cases[n].in_incr,
+				out + out_offs,
+				&out_size, ae_cases[n].tag,
+				ae_cases[n].tag_len)))
+			goto out;
+
+		out_offs += out_size;
+
+		(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ptx,
+			ae_cases[n].ptx_len, out, out_offs);
+	}
+
+	/* test on the copied op2 */
+	out_size = sizeof(out) - out_offs2;
+	memset(out + out_offs2, 0, out_size);
+	if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
+		uint8_t out_tag[64] = { 0 };
+		size_t out_tag_len = MIN(sizeof(out_tag),
+					 ae_cases[n].tag_len);
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_encrypt_final(c, &session, op2,
+				ae_cases[n].ptx + ae_cases[n].in_incr,
+				ae_cases[n].ptx_len -
+					ae_cases[n].in_incr,
+				out + out_offs2,
+				&out_size, out_tag, &out_tag_len)))
+			goto out;
+
+		ADBG_EXPECT_BUFFER(c, ae_cases[n].tag,
+				   ae_cases[n].tag_len, out_tag,
+				   out_tag_len);
+
+		out_offs2 += out_size;
+
+		(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ctx,
+			ae_cases[n].ctx_len, out, out_offs2);
+	} else {
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_ae_decrypt_final(c, &session, op2,
+				ae_cases[n].ctx + ae_cases[n].in_incr,
+				ae_cases[n].ctx_len -
+					ae_cases[n].in_incr,
+				out + out_offs2,
+				&out_size, ae_cases[n].tag,
+				ae_cases[n].tag_len)))
+			goto out;
+
+		out_offs2 += out_size;
+
+		(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ptx,
+			ae_cases[n].ptx_len, out, out_offs2);
+	}
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, &session, op)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, &session, op2)))
+		goto out;
+
+	return TEEC_SUCCESS;
+
+out:
+	return TEEC_ERROR_GENERIC;
+}
+
 static void xtest_tee_test_4005(ADBG_Case_t *c)
 {
 	TEEC_Session session = { };
 	TEE_OperationHandle op = TEE_HANDLE_NULL;
 	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
 	TEE_ObjectHandle key_handle = TEE_HANDLE_NULL;
-	TEE_Attribute key_attr = { };
-	uint8_t out[512] = { };
-	size_t out_size = 0;
-	size_t out_offs = 0;
-	size_t out_offs2 = 0;
-	uint32_t ret_orig = 0;
 	size_t n = 0;
-	size_t expected_out = 0;
+	uint32_t ret_orig = 0;
 
 	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
 		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
@@ -2641,201 +2877,12 @@ static void xtest_tee_test_4005(ADBG_Case_t *c)
 		Do_ADBG_BeginSubCase(c, "AE case %d algo 0x%x line %d",
 				     (int)n, (unsigned int)ae_cases[n].algo,
 				     (int)ae_cases[n].line);
-
-		key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
-		key_attr.content.ref.buffer = (void *)ae_cases[n].key;
-		key_attr.content.ref.length = ae_cases[n].key_len;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_operation(c, &session, &op,
-				ae_cases[n].algo, ae_cases[n].mode,
-				key_attr.content.ref.length * 8)))
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_aead_operation(c, n, session, op, op2,
+		    key_handle, (void *)ae_cases[n].key, ae_cases[n].key_len,
+		    ae_cases[n].key_type)))
 			goto out;
 
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_operation(c, &session, &op2,
-				ae_cases[n].algo, ae_cases[n].mode,
-				key_attr.content.ref.length * 8)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_allocate_transient_object(c, &session,
-				ae_cases[n].key_type,
-				key_attr.content.ref.length * 8,
-				&key_handle)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_populate_transient_object(c, &session,
-				key_handle, &key_attr, 1)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_set_operation_key(c, &session, op,
-				key_handle)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_transient_object(c, &session,
-				key_handle)))
-			goto out;
 		key_handle = TEE_HANDLE_NULL;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_ae_init(c, &session, op, ae_cases[n].nonce,
-			ae_cases[n].nonce_len, ae_cases[n].tag_len,
-			ae_cases[n].aad_len, ae_cases[n].ptx_len)))
-			goto out;
-
-		if (ae_cases[n].aad != NULL) {
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_update_aad(c, &session, op,
-					ae_cases[n].aad, ae_cases[n].aad_incr)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_update_aad(c, &session, op,
-					ae_cases[n].aad + ae_cases[n].aad_incr,
-					ae_cases [n].aad_len -
-						ae_cases[n].aad_incr)))
-				goto out;
-		}
-
-		out_offs = 0;
-		out_size = sizeof(out);
-		memset(out, 0, sizeof(out));
-		if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
-			if (ae_cases[n].ptx != NULL) {
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_ae_update(c, &session, op,
-						ae_cases[n].ptx,
-						ae_cases[n].in_incr, out,
-						&out_size)))
-					goto out;
-				out_offs += out_size;
-				if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
-					expected_out = ae_cases[n].in_incr;
-					#if CFG_NXP_HSE
-					expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
-					#endif
-					ADBG_EXPECT_COMPARE_UNSIGNED(c,
-					  out_size, ==, expected_out);
-				}
-			}
-		} else {
-			if (ae_cases[n].ctx != NULL) {
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_ae_update(c, &session, op,
-						ae_cases[n].ctx,
-						ae_cases[n].in_incr, out,
-						&out_size)))
-					goto out;
-				out_offs += out_size;
-				if (ae_cases[n].algo == TEE_ALG_AES_GCM) {
-					expected_out = ae_cases[n].in_incr;
-					#if CFG_NXP_HSE
-					expected_out -= ae_cases[n].in_incr % TEE_AES_BLOCK_SIZE;
-					#endif
-					ADBG_EXPECT_COMPARE_UNSIGNED(c,
-					  out_size, ==, expected_out);
-				}
-			}
-		}
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_copy_operation(c, &session, op2, op)))
-			goto out;
-
-		out_size = sizeof(out) - out_offs;
-		out_offs2 = out_offs;
-		if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
-			uint8_t out_tag[64];
-			size_t out_tag_len = MIN(sizeof(out_tag),
-						 ae_cases[n].tag_len);
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_encrypt_final(c, &session, op,
-					ae_cases[n].ptx + ae_cases[n].in_incr,
-					ae_cases[n].ptx_len -
-						ae_cases[n].in_incr,
-					out + out_offs,
-					&out_size, out_tag, &out_tag_len)))
-				goto out;
-
-			(void)ADBG_EXPECT_BUFFER(c,
-				ae_cases[n].tag, ae_cases[n].tag_len, out_tag,
-				out_tag_len);
-
-			out_offs += out_size;
-
-			(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ctx,
-				ae_cases[n].ctx_len, out, out_offs);
-		} else {
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_decrypt_final(c, &session, op,
-					ae_cases[n].ctx + ae_cases[n].in_incr,
-					ae_cases[n].ctx_len -
-						ae_cases[n].in_incr,
-					out + out_offs,
-					&out_size, ae_cases[n].tag,
-					ae_cases[n].tag_len)))
-				goto out;
-
-			out_offs += out_size;
-
-			(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ptx,
-				ae_cases[n].ptx_len, out, out_offs);
-		}
-
-		/* test on the copied op2 */
-		out_size = sizeof(out) - out_offs2;
-		memset(out + out_offs2, 0, out_size);
-		if (ae_cases[n].mode == TEE_MODE_ENCRYPT) {
-			uint8_t out_tag[64] = { 0 };
-			size_t out_tag_len = MIN(sizeof(out_tag),
-						 ae_cases[n].tag_len);
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_encrypt_final(c, &session, op2,
-					ae_cases[n].ptx + ae_cases[n].in_incr,
-					ae_cases[n].ptx_len -
-						ae_cases[n].in_incr,
-					out + out_offs2,
-					&out_size, out_tag, &out_tag_len)))
-				goto out;
-
-			ADBG_EXPECT_BUFFER(c, ae_cases[n].tag,
-					   ae_cases[n].tag_len, out_tag,
-					   out_tag_len);
-
-			out_offs2 += out_size;
-
-			(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ctx,
-				ae_cases[n].ctx_len, out, out_offs2);
-		} else {
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_ae_decrypt_final(c, &session, op2,
-					ae_cases[n].ctx + ae_cases[n].in_incr,
-					ae_cases[n].ctx_len -
-						ae_cases[n].in_incr,
-					out + out_offs2,
-					&out_size, ae_cases[n].tag,
-					ae_cases[n].tag_len)))
-				goto out;
-
-			out_offs2 += out_size;
-
-			(void)ADBG_EXPECT_BUFFER(c, ae_cases[n].ptx,
-				ae_cases[n].ptx_len, out, out_offs2);
-		}
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_operation(c, &session, op)))
-			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_operation(c, &session, op2)))
-			goto out;
 
 		Do_ADBG_EndSubCase(c, NULL);
 	}
@@ -6179,3 +6226,311 @@ out:
 }
 ADBG_CASE_DEFINE(regression, 4016, xtest_tee_test_4016_ed25519,
 		 "Test TEE Internal API ED25519 sign/verify");
+
+#if defined(CFG_HSE_EMBED_KEYHANDLES)
+#include <pta_hse_kp.h>
+
+static const uint8_t hse_magic[] = {
+	0xCA, 0xBF, 0x00, 0x1C, 0xCA, 0xBF, 0x54, 0x1C,
+	0x39, 0x78, 0x04, 0xA3, 0x5A, 0x11, 0x24, 0x9F,
+	0x64, 0xEE, 0x89, 0x23, 0x90, 0x8C, 0xF5, 0x64,
+	0x9A, 0x8C, 0x7E, 0x35
+};
+
+#define HSE_MAGIC_SIZE		ARRAY_SIZE(hse_magic)
+#define PROVISION_KEYS_NUM	3
+
+#define HSE_AES_NVM_GROUP 8
+#define HSE_AES_NVM_SLOT 1
+
+#define HSE_HMAC_NVM_GROUP 2
+#define HSE_HMAC_NVM_SLOT 1
+
+static TEEC_Result pta_hse_kp_cmd_key_provision(ADBG_Case_t *c,
+						TEEC_Session *sess,
+						const uint8_t *keys[PROVISION_KEYS_NUM],
+						uint16_t lenghts[PROVISION_KEYS_NUM],
+						struct hse_kp_info key_info)
+{
+	TEEC_Operation op = TEEC_OPERATION_INITIALIZER;
+	size_t i;
+	TEEC_Result res;
+	uint32_t ret_orig = 0;
+
+	if (!sess || !keys || !lenghts)
+		return TEEC_ERROR_BAD_PARAMETERS;
+
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,
+					 TEEC_MEMREF_TEMP_INPUT,
+					 TEEC_MEMREF_TEMP_INPUT,
+					 TEEC_MEMREF_TEMP_INPUT);
+
+	op.params[0].tmpref.buffer = &key_info;
+	op.params[0].tmpref.size = sizeof(key_info);
+
+	for (i = 0; i < PROVISION_KEYS_NUM; i++) {
+		op.params[i + 1].tmpref.buffer = (uint8_t *)keys[i];
+		op.params[i + 1].tmpref.size = lenghts[i];
+	}
+
+	res = TEEC_InvokeCommand(sess, PTA_CMD_KEY_PROVISION,
+				 &op, &ret_orig);
+	if (res != TEEC_SUCCESS) {
+		(void)ADBG_EXPECT_TEEC_ERROR_ORIGIN(c, TEEC_ORIGIN_TRUSTED_APP,
+						    ret_orig);
+	}
+
+	return res;
+}
+
+static TEEC_Result pta_hse_kp_cmd_key_erase(ADBG_Case_t *c, TEEC_Session *sess,
+					    uint32_t hse_key_handle)
+{
+	TEEC_Operation op = TEEC_OPERATION_INITIALIZER;
+	TEEC_Result res;
+	uint32_t ret_orig = 0;
+
+	if (!sess)
+		return TEEC_ERROR_BAD_PARAMETERS;
+
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT, TEEC_NONE,
+					 TEEC_NONE, TEEC_NONE);
+
+	op.params[0].value.a = hse_key_handle;
+
+	res = TEEC_InvokeCommand(sess, PTA_CMD_KEY_ERASE,
+				 &op, &ret_orig);
+	if (res != TEEC_SUCCESS) {
+		(void)ADBG_EXPECT_TEEC_ERROR_ORIGIN(c, TEEC_ORIGIN_TRUSTED_APP,
+						    ret_orig);
+	}
+
+	return res;
+}
+
+static void xtest_tee_test_4017(ADBG_Case_t *c)
+{
+	TEEC_Session session = { }, import_key_session;
+	TEE_OperationHandle op = TEE_HANDLE_NULL;
+	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
+	TEE_ObjectHandle key1_handle = TEE_HANDLE_NULL;
+	uint32_t ret_orig = 0;
+	size_t n = 0;
+	uint8_t key[HSE_MAGIC_SIZE + sizeof(uint32_t)];
+	uint32_t origin;
+	uint32_t handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, HSE_AES_NVM_GROUP,
+					 HSE_AES_NVM_SLOT);
+
+	/* Open a session with the TA */
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_teec_open_session(&import_key_session,
+				   &pta_hse_kp_uuid, NULL, &origin)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
+					&ret_orig)))
+		return;
+
+	memcpy(key, hse_magic, HSE_MAGIC_SIZE);
+	memcpy(key + HSE_MAGIC_SIZE, &(handle), sizeof(uint32_t));
+
+	for (n = 0; n < ARRAY_SIZE(ciph_cases); n++) {
+		switch (ciph_cases[n].algo) {
+		case TEE_ALG_AES_ECB_NOPAD:
+		case TEE_ALG_AES_CBC_NOPAD:
+		case TEE_ALG_AES_CTR:
+			break;
+		default:
+			continue;
+		}
+
+		Do_ADBG_BeginSubCase(c, "Cipher case %d algo 0x%x line %d",
+				     (int)n, (unsigned int)ciph_cases[n].algo,
+				     (int)ciph_cases[n].line);
+		struct hse_kp_info key_info;
+		const uint8_t *keys[PROVISION_KEYS_NUM];
+		uint16_t provision_key_lengths[PROVISION_KEYS_NUM];
+
+		key_info.key_handle = handle;
+		key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT;
+		key_info.key_type = HSE_KEY_TYPE_AES;
+		keys[0] = ciph_cases[n].key1;
+		provision_key_lengths[0] = ciph_cases[n].key1_len;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
+			 &import_key_session, keys, provision_key_lengths, key_info)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_ciph_operation(c, n, session, op, op2,
+						  key1_handle, NULL, key, sizeof(key), NULL, 0,
+						  ciph_cases[n].key_type)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_erase(c, &import_key_session,
+					      handle)))
+			goto out;
+
+		Do_ADBG_EndSubCase(c, NULL);
+	}
+out:
+	TEEC_CloseSession(&session);
+	TEEC_CloseSession(&import_key_session);
+
+}
+ADBG_CASE_DEFINE(regression, 4017, xtest_tee_test_4017,
+		"Test TEE cipher operations using HSE embedded key handles");
+
+static void xtest_tee_test_4018(ADBG_Case_t *c)
+{
+	TEEC_Session session = { }, import_key_session = { };
+	TEE_OperationHandle op = TEE_HANDLE_NULL;
+	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
+	TEE_ObjectHandle key_handle = TEE_HANDLE_NULL;
+	uint8_t key[HSE_MAGIC_SIZE + sizeof(uint32_t)];
+	uint32_t ret_orig = 0;
+	size_t n = 0;
+	uint32_t origin;
+	uint32_t handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, HSE_AES_NVM_GROUP,
+				 HSE_AES_NVM_SLOT);
+
+	/* Open a session with the TA */
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_teec_open_session(&import_key_session,
+				   &pta_hse_kp_uuid, NULL, &origin)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
+					&ret_orig)))
+		return;
+
+	memcpy(key, hse_magic, HSE_MAGIC_SIZE);
+	memcpy(key + HSE_MAGIC_SIZE, &(handle), sizeof(uint32_t));
+
+	for (n = 0; n < ARRAY_SIZE(ae_cases); n++) {
+		Do_ADBG_BeginSubCase(c, "AE case %d algo 0x%x line %d",
+				     (int)n, (unsigned int)ae_cases[n].algo,
+				     (int)ae_cases[n].line);
+
+		struct hse_kp_info key_info;
+		const uint8_t *keys[PROVISION_KEYS_NUM];
+		uint16_t provision_key_lengths[PROVISION_KEYS_NUM];
+
+		key_info.key_handle = handle;
+		key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT;
+		key_info.key_type = HSE_KEY_TYPE_AES;
+		keys[0] = ae_cases[n].key;
+		provision_key_lengths[0] = ae_cases[n].key_len;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
+			 &import_key_session, keys, provision_key_lengths,
+			 key_info)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_aead_operation(c, n, session, op, op2,
+					  key_handle, key, sizeof(key), ae_cases[n].key_type)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_erase(c,
+					      &import_key_session, handle)))
+			goto out;
+
+		Do_ADBG_EndSubCase(c, NULL);
+	}
+out:
+	TEEC_CloseSession(&session);
+	TEEC_CloseSession(&import_key_session);
+}
+ADBG_CASE_DEFINE(regression, 4018, xtest_tee_test_4018,
+		"Test TEE AEAD operations using HSE embedded key handles");
+
+static void xtest_tee_test_4019(ADBG_Case_t *c)
+{
+	TEEC_Session session = { }, import_key_session = { };
+	TEE_OperationHandle op1 = TEE_HANDLE_NULL;
+	TEE_OperationHandle op2 = TEE_HANDLE_NULL;
+	TEE_OperationHandle op3 = TEE_HANDLE_NULL;
+	TEE_ObjectHandle key_handle = TEE_HANDLE_NULL;
+	uint8_t key[HSE_MAGIC_SIZE + sizeof(uint32_t)];
+	uint32_t ret_orig = 0, origin = 0;
+	size_t n = 0;
+	uint32_t handle;
+
+	/* Open a session with the TA */
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_teec_open_session(&import_key_session,
+				   &pta_hse_kp_uuid, NULL, &origin)))
+		goto out;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
+					&ret_orig)))
+		return;
+
+	memcpy(key, hse_magic, HSE_MAGIC_SIZE);
+
+	for (n = 0; n < ARRAY_SIZE(mac_cases); n++) {
+		if (mac_cases[n].key_type == TEE_TYPE_DES ||
+		    mac_cases[n].key_type == TEE_TYPE_DES3 ||
+			mac_cases[n].key_type == TEE_TYPE_HMAC_SM3 ||
+			(mac_cases[n].key_type >= TEE_TYPE_HMAC_SHA3_224 &&
+			 mac_cases[n].key_type <= TEE_TYPE_HMAC_SHA3_512) ||
+			mac_cases[n].key_len < 16 ||
+			mac_cases[n].key_len > 64)
+			continue;
+
+		Do_ADBG_BeginSubCase(c, "MAC case %d algo 0x%x",
+				     (int)n, (unsigned int)mac_cases[n].algo);
+
+		if (mac_cases[n].key_type == TEE_TYPE_AES) {
+			handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, HSE_AES_NVM_GROUP,
+						HSE_AES_NVM_SLOT);
+			struct hse_kp_info key_info;
+			const uint8_t *keys[PROVISION_KEYS_NUM];
+			uint16_t provision_key_lengths[PROVISION_KEYS_NUM];
+
+			key_info.key_handle = handle;
+			key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT |
+					     HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+			key_info.key_type = HSE_KEY_TYPE_AES;
+			keys[0] = mac_cases[n].key;
+			provision_key_lengths[0] = mac_cases[n].key_len;
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
+				&import_key_session, keys, provision_key_lengths, key_info)))
+				goto out;
+		} else {
+			handle = GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM,
+						HSE_HMAC_NVM_GROUP, HSE_HMAC_NVM_SLOT);
+			struct hse_kp_info key_info;
+
+			key_info.key_handle = handle;
+			key_info.key_flags = HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
+			key_info.key_type = HSE_KEY_TYPE_HMAC;
+			const uint8_t *keys[PROVISION_KEYS_NUM];
+			uint16_t provision_key_lengths[PROVISION_KEYS_NUM];
+
+			keys[0] = mac_cases[n].key;
+			provision_key_lengths[0] = mac_cases[n].key_len;
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
+				&import_key_session, keys, provision_key_lengths, key_info)))
+				goto out;
+		}
+
+		memcpy(key + HSE_MAGIC_SIZE, &(handle), sizeof(uint32_t));
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, xtest_mac_operation(c, n,
+			session, op1, op2, op3, key_handle,
+		    key, sizeof(key), mac_cases[n].key_type)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_erase(c,
+			&import_key_session, handle)))
+			goto out;
+
+		Do_ADBG_EndSubCase(c, NULL);
+	}
+out:
+	TEEC_CloseSession(&session);
+	TEEC_CloseSession(&import_key_session);
+}
+ADBG_CASE_DEFINE(regression, 4019, xtest_tee_test_4019,
+		"Test TEE MAC operations using HSE embedded key handles");
+#endif // CFG_HSE_EMBED_KEYHANDLES
