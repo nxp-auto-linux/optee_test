@@ -3869,19 +3869,313 @@ static bool create_key(ADBG_Case_t *c, TEEC_Session *s,
 
 #define XTEST_NO_CURVE 0xFFFFFFFF /* implementation-defined as per GP spec */
 
+static TEEC_Result hash_asymmetric_payload(ADBG_Case_t *c,
+					   TEEC_Session *session,
+					   const struct xtest_ac_case *tv,
+					   uint8_t ptx_hash[TEE_MAX_HASH_SIZE],
+					   size_t *ptx_hash_size)
+{
+	uint32_t hash_algo = 0;
+	TEE_OperationHandle op = TEE_HANDLE_NULL;
+
+	if (TEE_ALG_GET_MAIN_ALG(tv->algo) == TEE_MAIN_ALGO_ECDSA)
+		hash_algo = TEE_ALG_SHA1;
+#if defined(CFG_CRYPTO_RSASSA_NA1)
+	else if (tv->algo == TEE_ALG_RSASSA_PKCS1_V1_5)
+		hash_algo = TEE_ALG_SHA256;
+#endif
+	else
+		hash_algo = TEE_ALG_HASH_ALGO(
+			TEE_ALG_GET_DIGEST_HASH(tv->algo));
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_allocate_operation(c, session,
+			&op, hash_algo, TEE_MODE_DIGEST, 0)))
+		goto err;
+
+	*ptx_hash_size = TEE_MAX_HASH_SIZE;
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_digest_do_final(c, session, op,
+			tv->ptx, tv->ptx_len, ptx_hash,
+			ptx_hash_size)))
+		goto err;
+
+	/*
+	 * When we use DSA algorithms, the size of the hash we
+	 * consider equals the min between the size of the
+	 * "subprime" in the key and the size of the hash
+	 */
+	if (TEE_ALG_GET_MAIN_ALG(tv->algo) ==
+		TEE_MAIN_ALGO_DSA) {
+		if (tv->params.dsa.sub_prime_len <=
+			*ptx_hash_size)
+			*ptx_hash_size =
+				tv->params.dsa.sub_prime_len;
+	}
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, session, op)))
+		goto err;
+
+	return TEEC_SUCCESS;
+
+err:
+	return TEEC_ERROR_GENERIC;
+}
+
+static TEEC_Result asymmetric_operate(ADBG_Case_t *c, TEEC_Session *session,
+				      const struct xtest_ac_case *tv,
+				      size_t max_key_size,
+				      TEE_ObjectHandle pub_key_handle,
+				      TEE_ObjectHandle priv_key_handle,
+				      TEE_Attribute algo_params[2],
+				      size_t num_algo_params,
+				      uint8_t ptx_hash[TEE_MAX_HASH_SIZE],
+				      size_t ptx_hash_size)
+{
+	TEE_OperationHandle op = TEE_HANDLE_NULL;
+	uint8_t out[512] = { };
+	size_t out_size = sizeof(out);
+	uint8_t out_enc[512] = { };
+	size_t out_enc_size = 0;
+	uint32_t sha1_algo_id = TEE_ALG_SHA1;
+
+	switch (tv->mode) {
+	case TEE_MODE_ENCRYPT:
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_operation(c, session,
+				&op, tv->algo, TEE_MODE_ENCRYPT,
+				max_key_size)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key(c, session, op,
+				pub_key_handle)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_transient_object(c, session,
+				pub_key_handle)))
+			goto err;
+		pub_key_handle = TEE_HANDLE_NULL;
+
+		num_algo_params = 0;
+		if (tv->algo == TEE_ALG_RSAES_PKCS1_OAEP_MGF1_SHA1) {
+			algo_params[0].attributeID =
+				TEE_ATTR_RSA_OAEP_MGF_HASH;
+			algo_params[0].content.ref.length =
+				sizeof(sha1_algo_id);
+			algo_params[0].content.ref.buffer =
+				&sha1_algo_id;
+			num_algo_params = 1;
+		}
+
+
+		out_enc_size = sizeof(out_enc);
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_asymmetric_encrypt(c, session, op,
+				algo_params, num_algo_params, tv->ptx,
+				tv->ptx_len, out_enc, &out_enc_size)))
+			goto err;
+
+		/*
+		 * A PS which is random is added when formatting the
+		 * message internally of the algorithm so we can't
+		 * verify against precomputed values, instead we use the
+		 * decrypt operation to see that output is correct.
+		 */
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_operation(c, session, op)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_operation(c, session,
+				&op, tv->algo, TEE_MODE_DECRYPT,
+				max_key_size)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key(c, session, op,
+				priv_key_handle)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_transient_object(c, session,
+				priv_key_handle)))
+			goto err;
+
+		priv_key_handle = TEE_HANDLE_NULL;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_asymmetric_decrypt(c, session, op,
+				NULL, 0, out_enc, out_enc_size, out,
+				&out_size)))
+			goto err;
+
+		(void)ADBG_EXPECT_BUFFER(c, tv->ptx, tv->ptx_len, out,
+						out_size);
+		break;
+
+	case TEE_MODE_DECRYPT:
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_operation(c, session,
+				&op, tv->algo, TEE_MODE_DECRYPT,
+				max_key_size)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key(c, session, op,
+				priv_key_handle)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_transient_object(c, session,
+				priv_key_handle)))
+			goto err;
+
+		priv_key_handle = TEE_HANDLE_NULL;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_asymmetric_decrypt(c, session, op,
+				NULL, 0, tv->ctx, tv->ctx_len, out,
+				&out_size)))
+			goto err;
+
+		(void)ADBG_EXPECT_BUFFER(c, tv->ptx, tv->ptx_len, out,
+						out_size);
+		break;
+
+	case TEE_MODE_VERIFY:
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_operation(c, session,
+				&op, tv->algo, TEE_MODE_VERIFY,
+				max_key_size)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key(c, session, op,
+				pub_key_handle)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_transient_object(c, session,
+				pub_key_handle)))
+			goto err;
+
+		pub_key_handle = TEE_HANDLE_NULL;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_asymmetric_verify(c, session, op,
+				algo_params, num_algo_params, ptx_hash,
+				ptx_hash_size, tv->ctx, tv->ctx_len)))
+			goto err;
+		break;
+
+	case TEE_MODE_SIGN:
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_allocate_operation(c, session,
+				&op, tv->algo, TEE_MODE_SIGN,
+				max_key_size)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_set_operation_key(c, session, op,
+				priv_key_handle)))
+			goto err;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_free_transient_object(c, session,
+				priv_key_handle)))
+			goto err;
+
+		priv_key_handle = TEE_HANDLE_NULL;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			ta_crypt_cmd_asymmetric_sign(c, session, op,
+				algo_params, num_algo_params, ptx_hash,
+				ptx_hash_size, out, &out_size)))
+			goto err;
+
+		if (TEE_ALG_GET_CHAIN_MODE(tv->algo) ==
+			TEE_CHAIN_MODE_PKCS1_PSS_MGF1 ||
+			tv->algo == TEE_ALG_DSA_SHA1 ||
+			tv->algo == TEE_ALG_DSA_SHA224 ||
+			tv->algo == TEE_ALG_DSA_SHA256 ||
+			TEE_ALG_GET_MAIN_ALG(tv->algo) ==
+					TEE_MAIN_ALGO_ECDSA ||
+			tv->algo == TEE_ALG_SM2_DSA_SM3) {
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_free_operation(c, session,
+								op)))
+				goto err;
+			/*
+			 * The salt or K is random so we can't verify
+			 * signing against precomputed values, instead
+			 * we use the verify operation to see that
+			 * output is correct.
+			 */
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_allocate_operation(c,
+					session, &op, tv->algo,
+					TEE_MODE_VERIFY, max_key_size)))
+				goto err;
+
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_set_operation_key(c,
+					session, op, pub_key_handle)))
+				goto err;
+
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_free_transient_object(c,
+					session, pub_key_handle)))
+				goto err;
+
+			pub_key_handle = TEE_HANDLE_NULL;
+
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				ta_crypt_cmd_asymmetric_verify(c,
+					session, op, algo_params,
+					num_algo_params, ptx_hash,
+					ptx_hash_size, out, out_size)))
+				goto err;
+		} else {
+			(void)ADBG_EXPECT_BUFFER(c, tv->ctx,
+							tv->ctx_len, out,
+							out_size);
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_operation(c, session, op)))
+		goto err;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_transient_object(c, session,
+			pub_key_handle)))
+		goto err;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		ta_crypt_cmd_free_transient_object(c, session,
+			priv_key_handle)))
+		goto err;
+
+	return TEEC_SUCCESS;
+err:
+	return TEEC_ERROR_GENERIC;
+}
+
 static void xtest_tee_test_4006(ADBG_Case_t *c)
 {
 	TEEC_Session session = { };
-	TEE_OperationHandle op = TEE_HANDLE_NULL;
 	TEE_ObjectHandle priv_key_handle = TEE_HANDLE_NULL;
 	TEE_ObjectHandle pub_key_handle = TEE_HANDLE_NULL;
 	TEE_Attribute key_attrs[8] = { };
 	TEE_Attribute algo_params[2] = { };
 	size_t num_algo_params = 0;
-	uint8_t out[512] = { };
-	size_t out_size = 0;
-	uint8_t out_enc[512] = { };
-	size_t out_enc_size = 0;
 	uint8_t ptx_hash[TEE_MAX_HASH_SIZE] = { };
 	size_t ptx_hash_size = 0;
 	size_t max_key_size = 0;
@@ -3891,8 +4185,6 @@ static void xtest_tee_test_4006(ADBG_Case_t *c)
 	uint32_t curve = 0;
 	uint32_t pub_key_type = 0;
 	uint32_t priv_key_type = 0;
-	uint32_t hash_algo = 0;
-	uint32_t sha1_algo_id = TEE_ALG_SHA1;
 
 	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
 		xtest_teec_open_session(&session, &crypt_user_ta_uuid, NULL,
@@ -3921,46 +4213,12 @@ static void xtest_tee_test_4006(ADBG_Case_t *c)
 		 * When signing or verifying we're working with the hash of
 		 * the payload.
 		 */
-		if (tv->mode == TEE_MODE_VERIFY || tv->mode == TEE_MODE_SIGN) {
-			if (TEE_ALG_GET_MAIN_ALG(tv->algo) == TEE_MAIN_ALGO_ECDSA)
-				hash_algo = TEE_ALG_SHA1;
-#if defined(CFG_CRYPTO_RSASSA_NA1)
-			else if (tv->algo == TEE_ALG_RSASSA_PKCS1_V1_5)
-				hash_algo = TEE_ALG_SHA256;
-#endif
-			else
-				hash_algo = TEE_ALG_HASH_ALGO(
-					TEE_ALG_GET_DIGEST_HASH(tv->algo));
-
+		if (tv->mode == TEE_MODE_VERIFY || tv->mode == TEE_MODE_SIGN)
 			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, hash_algo, TEE_MODE_DIGEST, 0)))
+				hash_asymmetric_payload(c, &session, tv,
+							ptx_hash,
+							&ptx_hash_size)))
 				goto out;
-
-			ptx_hash_size = sizeof(ptx_hash);
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_digest_do_final(c, & session, op,
-					tv->ptx, tv->ptx_len, ptx_hash,
-					&ptx_hash_size)))
-				goto out;
-
-			/*
-			 * When we use DSA algorithms, the size of the hash we
-			 * consider equals the min between the size of the
-			 * "subprime" in the key and the size of the hash
-			 */
-			if (TEE_ALG_GET_MAIN_ALG(tv->algo) ==
-			    TEE_MAIN_ALGO_DSA) {
-				if (tv->params.dsa.sub_prime_len <=
-				    ptx_hash_size)
-					ptx_hash_size =
-						tv->params.dsa.sub_prime_len;
-			}
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_operation(c, &session, op)))
-				goto out;
-		}
 
 		num_algo_params = 0;
 		num_key_attrs = 0;
@@ -4167,235 +4425,12 @@ static void xtest_tee_test_4006(ADBG_Case_t *c)
 			goto out;
 		}
 
-		out_size = sizeof(out);
-		memset(out, 0, sizeof(out));
-		switch (tv->mode) {
-		case TEE_MODE_ENCRYPT:
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, tv->algo, TEE_MODE_ENCRYPT,
-					max_key_size)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					pub_key_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_transient_object(c, &session,
-					pub_key_handle)))
-				goto out;
-			pub_key_handle = TEE_HANDLE_NULL;
-
-			num_algo_params = 0;
-			if (tv->algo == TEE_ALG_RSAES_PKCS1_OAEP_MGF1_SHA1) {
-				algo_params[0].attributeID =
-					TEE_ATTR_RSA_OAEP_MGF_HASH;
-				algo_params[0].content.ref.length =
-					sizeof(sha1_algo_id);
-				algo_params[0].content.ref.buffer =
-					&sha1_algo_id;
-				num_algo_params = 1;
-			}
-
-
-			out_enc_size = sizeof(out_enc);
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_asymmetric_encrypt(c, &session, op,
-					algo_params, num_algo_params, tv->ptx,
-					tv->ptx_len, out_enc, &out_enc_size)))
-				goto out;
-
-			/*
-			 * A PS which is random is added when formatting the
-			 * message internally of the algorithm so we can't
-			 * verify against precomputed values, instead we use the
-			 * decrypt operation to see that output is correct.
-			 */
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_operation(c, &session, op)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, tv->algo, TEE_MODE_DECRYPT,
-					max_key_size)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					priv_key_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_transient_object(c, &session,
-					priv_key_handle)))
-				goto out;
-
-			priv_key_handle = TEE_HANDLE_NULL;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_asymmetric_decrypt(c, &session, op,
-					NULL, 0, out_enc, out_enc_size, out,
-					&out_size)))
-				goto out;
-
-			(void)ADBG_EXPECT_BUFFER(c, tv->ptx, tv->ptx_len, out,
-						 out_size);
-			break;
-
-		case TEE_MODE_DECRYPT:
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, tv->algo, TEE_MODE_DECRYPT,
-					max_key_size)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					priv_key_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_transient_object(c, &session,
-					priv_key_handle)))
-				goto out;
-
-			priv_key_handle = TEE_HANDLE_NULL;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_asymmetric_decrypt(c, &session, op,
-					NULL, 0, tv->ctx, tv->ctx_len, out,
-					&out_size)))
-				goto out;
-
-			(void)ADBG_EXPECT_BUFFER(c, tv->ptx, tv->ptx_len, out,
-						 out_size);
-			break;
-
-		case TEE_MODE_VERIFY:
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, tv->algo, TEE_MODE_VERIFY,
-					max_key_size)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					pub_key_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_transient_object(c, &session,
-					pub_key_handle)))
-				goto out;
-
-			pub_key_handle = TEE_HANDLE_NULL;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_asymmetric_verify(c, &session, op,
-					algo_params, num_algo_params, ptx_hash,
-					ptx_hash_size, tv->ctx, tv->ctx_len)))
-				goto out;
-			break;
-
-		case TEE_MODE_SIGN:
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_allocate_operation(c, &session,
-					&op, tv->algo, TEE_MODE_SIGN,
-					max_key_size)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_set_operation_key(c, &session, op,
-					priv_key_handle)))
-				goto out;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_free_transient_object(c, &session,
-					priv_key_handle)))
-				goto out;
-
-			priv_key_handle = TEE_HANDLE_NULL;
-
-			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-				ta_crypt_cmd_asymmetric_sign(c, &session, op,
-					algo_params, num_algo_params, ptx_hash,
-					ptx_hash_size, out, &out_size)))
-				goto out;
-
-			if (TEE_ALG_GET_CHAIN_MODE(tv->algo) ==
-			    TEE_CHAIN_MODE_PKCS1_PSS_MGF1 ||
-			    tv->algo == TEE_ALG_DSA_SHA1 ||
-			    tv->algo == TEE_ALG_DSA_SHA224 ||
-			    tv->algo == TEE_ALG_DSA_SHA256 ||
-			    TEE_ALG_GET_MAIN_ALG(tv->algo) ==
-					    TEE_MAIN_ALGO_ECDSA ||
-			    tv->algo == TEE_ALG_SM2_DSA_SM3) {
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_free_operation(c, &session,
-								    op)))
-					goto out;
-				/*
-				 * The salt or K is random so we can't verify
-				 * signing against precomputed values, instead
-				 * we use the verify operation to see that
-				 * output is correct.
-				 */
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_allocate_operation(c,
-						&session, &op, tv->algo,
-						TEE_MODE_VERIFY, max_key_size)))
-					goto out;
-
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_set_operation_key(c,
-						&session, op, pub_key_handle)))
-					goto out;
-
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_free_transient_object(c,
-						&session, pub_key_handle)))
-					goto out;
-
-				pub_key_handle = TEE_HANDLE_NULL;
-
-				if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-					ta_crypt_cmd_asymmetric_verify(c,
-						&session, op, algo_params,
-						num_algo_params, ptx_hash,
-						ptx_hash_size, out, out_size)))
-					goto out;
-			} else {
-				(void)ADBG_EXPECT_BUFFER(c, tv->ctx,
-							 tv->ctx_len, out,
-							 out_size);
-			}
-			break;
-
-		default:
-			break;
-		}
-
 		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_operation(c, &session, op)))
+			asymmetric_operate(c, &session, tv, max_key_size,
+					   pub_key_handle, priv_key_handle,
+					   algo_params, num_algo_params,
+					   ptx_hash, ptx_hash_size)))
 			goto out;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_transient_object(c, &session,
-				pub_key_handle)))
-			goto out;
-		pub_key_handle = TEE_HANDLE_NULL;
-
-		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
-			ta_crypt_cmd_free_transient_object(c, &session,
-				priv_key_handle)))
-			goto out;
-
-		priv_key_handle = TEE_HANDLE_NULL;
-
 		Do_ADBG_EndSubCase(c, NULL);
 	}
 out:
@@ -6240,11 +6275,31 @@ static const uint8_t hse_magic[] = {
 #define HSE_MAGIC_SIZE		ARRAY_SIZE(hse_magic)
 #define PROVISION_KEYS_NUM	3
 
-#define HSE_AES_NVM_GROUP 8
-#define HSE_AES_NVM_SLOT 1
+#define HSE_AES_NVM_GROUP	8
+#define HSE_AES_NVM_SLOT	1
 
-#define HSE_HMAC_NVM_GROUP 2
-#define HSE_HMAC_NVM_SLOT 1
+#define HSE_HMAC_NVM_GROUP	2
+#define HSE_HMAC_NVM_SLOT	1
+
+#define HSE_RSA_PAIR_GROUP	6
+#define HSE_RSA_PAIR_SLOT	0
+
+#define HSE_RSA_PUB_GROUP	5
+#define HSE_RSA_PUB_SLOT	0
+
+#define HSE_ECC_PAIR_GROUP	3
+#define HSE_ECC_PAIR_SLOT	0
+
+#define HSE_ECC_PUB_GROUP	4
+#define HSE_ECC_PUB_SLOT	0
+
+#define KEY_INFO_INIT(group, slot, type, flags) \
+	{ \
+		.key_handle = (GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
+					     (group), (slot))), \
+		.key_type = (type), \
+		.key_flags = (flags), \
+	}
 
 static TEEC_Result pta_hse_kp_cmd_key_provision(ADBG_Case_t *c,
 						TEEC_Session *sess,
@@ -6533,4 +6588,405 @@ out:
 }
 ADBG_CASE_DEFINE(regression, 4019, xtest_tee_test_4019,
 		"Test TEE MAC operations using HSE embedded key handles");
+
+static size_t get_bits_size_from_curve(uint32_t curve)
+{
+	switch (curve) {
+	case TEE_ECC_CURVE_NIST_P192:
+		return 192;
+	case TEE_ECC_CURVE_NIST_P224:
+		return 224;
+	case TEE_ECC_CURVE_NIST_P256:
+		return 256;
+	case TEE_ECC_CURVE_NIST_P384:
+		return 384;
+	case TEE_ECC_CURVE_NIST_P521:
+		return 521;
+	default:
+		return 0;
+	}
+}
+
+static TEEC_Result provision_keys(ADBG_Case_t *c,
+				  const struct xtest_ac_case *tv,
+				  TEEC_Session *pta_hse_kp_sess,
+				  uint32_t *hse_pubkey_handle,
+				  uint32_t *hse_keypair_handle)
+{
+	TEEC_Result res;
+	const uint8_t *provision_keys_arr[PROVISION_KEYS_NUM];
+	uint16_t provision_keys_lengths[PROVISION_KEYS_NUM];
+	struct hse_kp_info pub_kp_info, priv_kp_info;
+	uint8_t *ecc_public_xy = NULL;
+	uint16_t ecc_public_xy_len;
+
+	switch (TEE_ALG_GET_MAIN_ALG(tv->algo)) {
+	case TEE_MAIN_ALGO_RSA:
+		provision_keys_arr[0] = tv->params.rsa.modulus;
+		provision_keys_arr[1] = tv->params.rsa.pub_exp;
+		provision_keys_arr[2] = tv->params.rsa.priv_exp;
+
+		provision_keys_lengths[0] = tv->params.rsa.modulus_len;
+		provision_keys_lengths[1] = tv->params.rsa.pub_exp_len;
+		provision_keys_lengths[2] = tv->params.rsa.priv_exp_len;
+
+		pub_kp_info = (struct hse_kp_info)
+			KEY_INFO_INIT(HSE_RSA_PUB_GROUP, HSE_RSA_PUB_SLOT,
+				      HSE_KEY_TYPE_RSA_PUB,
+				      HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_VERIFY);
+
+
+		priv_kp_info = (struct hse_kp_info)
+			KEY_INFO_INIT(HSE_RSA_PAIR_GROUP,
+				      HSE_RSA_PAIR_SLOT,
+				      HSE_KEY_TYPE_RSA_PAIR,
+				      HSE_KF_USAGE_DECRYPT | HSE_KF_USAGE_SIGN);
+
+		break;
+
+	case TEE_MAIN_ALGO_ECDSA:
+		ecc_public_xy_len = tv->params.ecc.public_x_len +
+					tv->params.ecc.public_y_len;
+		ecc_public_xy = malloc(ecc_public_xy_len);
+		memcpy(ecc_public_xy, tv->params.ecc.public_x,
+			tv->params.ecc.public_x_len);
+		memcpy(ecc_public_xy + tv->params.ecc.public_x_len,
+			tv->params.ecc.public_y,
+			tv->params.ecc.public_y_len);
+
+		provision_keys_arr[0] = ecc_public_xy;
+		provision_keys_arr[1] = NULL;
+		provision_keys_arr[2] = tv->params.ecc.private;
+
+		provision_keys_lengths[0] = ecc_public_xy_len;
+		provision_keys_lengths[1] = 0;
+		provision_keys_lengths[2] = tv->params.ecc.private_len;
+
+		pub_kp_info = (struct hse_kp_info)
+			KEY_INFO_INIT(HSE_ECC_PUB_GROUP, HSE_ECC_PUB_SLOT,
+				      HSE_KEY_TYPE_ECC_PUB,
+				      HSE_KF_USAGE_VERIFY);
+
+		priv_kp_info = (struct hse_kp_info)
+			KEY_INFO_INIT(HSE_ECC_PAIR_GROUP, HSE_ECC_PAIR_SLOT,
+				      HSE_KEY_TYPE_ECC_PAIR,
+				      HSE_KF_USAGE_SIGN);
+
+		break;
+
+	default:
+		return TEEC_ERROR_NOT_SUPPORTED;
+	}
+
+	res = pta_hse_kp_cmd_key_provision(c, pta_hse_kp_sess, provision_keys_arr,
+					   provision_keys_lengths,
+					   pub_kp_info);
+	if (res != TEEC_SUCCESS)
+		goto out;
+
+	*hse_pubkey_handle = pub_kp_info.key_handle;
+
+	res = pta_hse_kp_cmd_key_provision(c, pta_hse_kp_sess, provision_keys_arr,
+					   provision_keys_lengths,
+					   priv_kp_info);
+	if (res != TEEC_SUCCESS)
+		goto out;
+
+	*hse_keypair_handle = priv_kp_info.key_handle;
+
+out:
+	if (ecc_public_xy)
+		free(ecc_public_xy);
+
+	return res;
+}
+
+static void xtest_tee_test_4020(ADBG_Case_t *c)
+{
+	TEEC_Session crypt_ta_sess = { }, pta_hse_kp_sess = { };
+	uint32_t ret_orig;
+	TEE_Result res;
+	TEE_ObjectHandle priv_key_handle = TEE_HANDLE_NULL;
+	TEE_ObjectHandle pub_key_handle = TEE_HANDLE_NULL;
+	TEE_Attribute key_attrs[8] = { };
+	TEE_Attribute algo_params[2] = { };
+	size_t num_algo_params = 0;
+	uint8_t ptx_hash[TEE_MAX_HASH_SIZE] = { };
+	size_t ptx_hash_size = 0;
+	size_t max_key_size = 0;
+	size_t num_key_attrs = 0;
+	size_t param_len = 0;
+	size_t n = 0;
+	uint32_t curve = 0;
+	uint32_t pub_key_type = 0;
+	uint32_t priv_key_type = 0;
+
+	uint32_t hse_pubkey_handle, hse_keypair_handle;
+	size_t embed_handle_size = HSE_MAGIC_SIZE + sizeof(uint32_t);
+	uint8_t hse_embed_pub_handle[embed_handle_size];
+	uint8_t hse_embed_priv_handle[embed_handle_size];
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&crypt_ta_sess, &crypt_user_ta_uuid,
+					NULL, &ret_orig)))
+		return;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&pta_hse_kp_sess, &pta_hse_kp_uuid,
+					NULL, &ret_orig)))
+		goto out;
+
+	for (n = 0; n < ARRAY_SIZE(xtest_ac_cases); n++) {
+		const struct xtest_ac_case *tv = xtest_ac_cases + n;
+
+		if (tv->level > level)
+			continue;
+
+		switch (TEE_ALG_GET_MAIN_ALG(tv->algo)) {
+		case TEE_MAIN_ALGO_RSA:
+		case TEE_MAIN_ALGO_ECDSA:
+			break;
+		default:
+			continue;
+		}
+
+		Do_ADBG_BeginSubCase(c, "Asym Crypto case %d algo 0x%x line %d",
+				     (int)n, (unsigned int)tv->algo,
+				     (int)tv->line);
+
+		res = provision_keys(c, tv, &pta_hse_kp_sess,
+				     &hse_pubkey_handle, &hse_keypair_handle);
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c, res))
+			goto out_early;
+
+		memcpy(hse_embed_pub_handle, hse_magic,
+		       HSE_MAGIC_SIZE);
+		memcpy(hse_embed_priv_handle, hse_magic,
+		       HSE_MAGIC_SIZE);
+		memcpy(hse_embed_pub_handle + HSE_MAGIC_SIZE,
+		       &hse_pubkey_handle, sizeof(uint32_t));
+		memcpy(hse_embed_priv_handle + HSE_MAGIC_SIZE,
+		       &hse_keypair_handle, sizeof(uint32_t));
+
+		/*
+		 * When signing or verifying we're working with the hash of
+		 * the payload.
+		 */
+		if (tv->mode == TEE_MODE_VERIFY || tv->mode == TEE_MODE_SIGN)
+			if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+				hash_asymmetric_payload(c, &crypt_ta_sess, tv,
+							ptx_hash,
+							&ptx_hash_size)))
+				goto out;
+
+		num_algo_params = 0;
+		num_key_attrs = 0;
+
+		switch (TEE_ALG_GET_MAIN_ALG(tv->algo)) {
+		case TEE_MAIN_ALGO_RSA:
+			if (tv->params.rsa.salt_len > 0) {
+				algo_params[0].attributeID =
+					TEE_ATTR_RSA_PSS_SALT_LENGTH;
+				algo_params[0].content.value.a =
+					tv->params.rsa.salt_len;
+				algo_params[0].content.value.b = 0;
+				num_algo_params = 1;
+			}
+
+			max_key_size = tv->params.rsa.modulus_len * 8;
+
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				       TEE_ATTR_RSA_MODULUS,
+				       hse_embed_pub_handle,
+				       tv->params.rsa.modulus_len);
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				       TEE_ATTR_RSA_PUBLIC_EXPONENT,
+				       tv->params.rsa.pub_exp,
+				       tv->params.rsa.pub_exp_len);
+
+			if (!ADBG_EXPECT_TRUE(c,
+				create_key(c, &crypt_ta_sess,
+					   max_key_size,
+					   TEE_TYPE_RSA_PUBLIC_KEY,
+					   key_attrs,
+					   num_key_attrs,
+					   &pub_key_handle)))
+				goto out;
+
+
+			key_attrs[0].content.ref.buffer =
+				(void *)hse_embed_priv_handle;
+
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				       TEE_ATTR_RSA_PRIVATE_EXPONENT,
+				       tv->params.rsa.priv_exp,
+				       tv->params.rsa.priv_exp_len);
+
+			if (tv->params.rsa.prime1_len != 0) {
+				xtest_add_attr(&num_key_attrs, key_attrs,
+					       TEE_ATTR_RSA_PRIME1,
+					       tv->params.rsa.prime1,
+					       tv->params.rsa.prime1_len);
+			}
+
+			if (tv->params.rsa.prime2_len != 0) {
+				xtest_add_attr(&num_key_attrs, key_attrs,
+			       TEE_ATTR_RSA_PRIME2,
+			       tv->params.rsa.prime2,
+			       tv->params.rsa.prime2_len);
+			}
+
+			if (tv->params.rsa.exp1_len != 0) {
+				xtest_add_attr(&num_key_attrs, key_attrs,
+			       TEE_ATTR_RSA_EXPONENT1,
+			       tv->params.rsa.exp1,
+			       tv->params.rsa.exp1_len);
+			}
+
+			if (tv->params.rsa.exp2_len != 0) {
+				xtest_add_attr(&num_key_attrs, key_attrs,
+			       TEE_ATTR_RSA_EXPONENT2,
+			       tv->params.rsa.exp2,
+			       tv->params.rsa.exp2_len);
+			}
+
+			if (tv->params.rsa.coeff_len != 0) {
+				xtest_add_attr(&num_key_attrs, key_attrs,
+			       TEE_ATTR_RSA_COEFFICIENT,
+			       tv->params.rsa.coeff,
+			       tv->params.rsa.coeff_len);
+			}
+
+			if (!ADBG_EXPECT_TRUE(c,
+			      create_key(c, &crypt_ta_sess,
+				 max_key_size,
+				 TEE_TYPE_RSA_KEYPAIR,
+				 key_attrs,
+				 num_key_attrs,
+				 &priv_key_handle)))
+				goto out;
+			break;
+
+		case TEE_MAIN_ALGO_ECDSA:
+			switch (tv->algo) {
+			case TEE_ALG_ECDSA_P192:
+				curve = TEE_ECC_CURVE_NIST_P192;
+				pub_key_type = TEE_TYPE_ECDSA_PUBLIC_KEY;
+				priv_key_type = TEE_TYPE_ECDSA_KEYPAIR;
+				break;
+			case TEE_ALG_ECDSA_P224:
+				curve = TEE_ECC_CURVE_NIST_P224;
+				pub_key_type = TEE_TYPE_ECDSA_PUBLIC_KEY;
+				priv_key_type = TEE_TYPE_ECDSA_KEYPAIR;
+				break;
+			case TEE_ALG_ECDSA_P256:
+				curve = TEE_ECC_CURVE_NIST_P256;
+				pub_key_type = TEE_TYPE_ECDSA_PUBLIC_KEY;
+				priv_key_type = TEE_TYPE_ECDSA_KEYPAIR;
+				break;
+			case TEE_ALG_ECDSA_P384:
+				curve = TEE_ECC_CURVE_NIST_P384;
+				pub_key_type = TEE_TYPE_ECDSA_PUBLIC_KEY;
+				priv_key_type = TEE_TYPE_ECDSA_KEYPAIR;
+				break;
+			case TEE_ALG_ECDSA_P521:
+				curve = TEE_ECC_CURVE_NIST_P521;
+				pub_key_type = TEE_TYPE_ECDSA_PUBLIC_KEY;
+				priv_key_type = TEE_TYPE_ECDSA_KEYPAIR;
+				break;
+			default:
+				curve = 0xFF;
+				break;
+			}
+
+			param_len = MAX(tv->params.ecc.public_x_len,
+					embed_handle_size);
+
+			if (tv->algo == TEE_ALG_ECDSA_P521)
+				max_key_size = 521;
+			else
+				max_key_size = param_len * 8;
+
+			if (curve != XTEST_NO_CURVE)
+				xtest_add_attr_value(&num_key_attrs, key_attrs,
+					TEE_ATTR_ECC_CURVE, curve, 0);
+
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				TEE_ATTR_ECC_PUBLIC_VALUE_X,
+				hse_embed_pub_handle,
+				param_len);
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				TEE_ATTR_ECC_PUBLIC_VALUE_Y,
+				tv->params.ecc.public_y,
+				tv->params.ecc.public_y_len);
+
+			if (!ADBG_EXPECT_TRUE(c,
+				create_key(c, &crypt_ta_sess, max_key_size,
+					pub_key_type, key_attrs,
+					num_key_attrs, &pub_key_handle)))
+				goto out;
+
+			key_attrs[1].content.ref.buffer =
+				(void *)hse_embed_priv_handle;
+
+			xtest_add_attr(&num_key_attrs, key_attrs,
+				TEE_ATTR_ECC_PRIVATE_VALUE,
+				tv->params.ecc.private,
+				tv->params.ecc.private_len);
+
+			if (!ADBG_EXPECT_TRUE(c,
+				create_key(c, &crypt_ta_sess, max_key_size,
+					priv_key_type, key_attrs,
+					num_key_attrs, &priv_key_handle)))
+				goto out;
+
+			/*
+			 * When allocating the operation, max_key_size needs to be
+			 * set to the curve size otherwise the allocation will fail
+			 */
+			max_key_size = get_bits_size_from_curve(curve);
+			if (!max_key_size)
+				goto out;
+
+			break;
+		default:
+			break;
+		}
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			asymmetric_operate(c, &crypt_ta_sess, tv, max_key_size,
+					   pub_key_handle, priv_key_handle,
+					   algo_params, num_algo_params,
+					   ptx_hash, ptx_hash_size)))
+			goto out;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			pta_hse_kp_cmd_key_erase(c, &pta_hse_kp_sess,
+						 hse_pubkey_handle)))
+			return;
+
+		if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+			pta_hse_kp_cmd_key_erase(c, &pta_hse_kp_sess,
+						 hse_keypair_handle)))
+			return;
+
+		Do_ADBG_EndSubCase(c, NULL);
+	}
+
+out:
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		pta_hse_kp_cmd_key_erase(c, &pta_hse_kp_sess,
+					 hse_pubkey_handle)))
+		return;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		pta_hse_kp_cmd_key_erase(c, &pta_hse_kp_sess,
+					 hse_keypair_handle)))
+		return;
+out_early:
+	TEEC_CloseSession(&crypt_ta_sess);
+	TEEC_CloseSession(&pta_hse_kp_sess);
+}
+ADBG_CASE_DEFINE(regression, 4020, xtest_tee_test_4020,
+		"Test TEE Internal API Asymmetric Cipher operations with HSE Embed Handles");
 #endif // CFG_HSE_EMBED_KEYHANDLES
