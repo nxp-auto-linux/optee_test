@@ -6721,7 +6721,8 @@ static void xtest_tee_test_4020(ADBG_Case_t *c)
 	uint32_t pub_key_type = 0;
 	uint32_t priv_key_type = 0;
 
-	uint32_t hse_pubkey_handle, hse_keypair_handle;
+	uint32_t hse_pubkey_handle = HSE_INVALID_KEY_HANDLE,
+		 hse_keypair_handle = HSE_INVALID_KEY_HANDLE;
 	size_t embed_handle_size = HSE_MAGIC_SIZE + sizeof(uint32_t);
 	uint8_t hse_embed_pub_handle[embed_handle_size];
 	uint8_t hse_embed_priv_handle[embed_handle_size];
@@ -6734,7 +6735,7 @@ static void xtest_tee_test_4020(ADBG_Case_t *c)
 	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
 		xtest_teec_open_session(&pta_hse_kp_sess, &pta_hse_kp_uuid,
 					NULL, &ret_orig)))
-		goto out;
+		goto out_early;
 
 	for (n = 0; n < ARRAY_SIZE(xtest_ac_cases); n++) {
 		const struct xtest_ac_case *tv = xtest_ac_cases + n;
