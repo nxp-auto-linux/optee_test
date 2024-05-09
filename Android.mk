@@ -51,6 +51,8 @@ srcs +=	adbg/src/adbg_case.c \
 	regression_5000.c \
 	regression_6000.c \
 	regression_8000.c \
+	regression_8000_pbkdf2_dbg.c \
+	regression_8000_pbkdf2_ekh.c \
 	regression_8100.c \
 	hash_perf.c \
 	stats.c \
