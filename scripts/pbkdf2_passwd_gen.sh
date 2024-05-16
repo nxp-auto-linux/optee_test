@@ -12,8 +12,8 @@
 # Example for PBKDF2:
 # openssl kdf -keylen 29 -kdfopt digest:SHA1 -kdfopt pass:"S32G_the_coolest_Automotive_SoC!" -kdfopt salt:"Linux_BSP_rulez!" -kdfopt iter:4096 PBKDF2
 
-#Example for AES:
-#echo "S32G_the_coolest_Automotive_SoC!" | openssl enc -e -aes-256-ecb -K 0000000000000000000000000000000000000000000000000000000000000000 -out /tmp/kkmak
+# Example for AES:
+# echo -n "S32G_the_coolest_Automotive_SoC!" | openssl enc -e -aes-256-ecb -K 0000000000000000000000000000000000000000000000000000000000000000 -out /tmp/kkmak
 
 # Other tools
 # echo -n 'The_quick_brown_fox_jumped_over' | od -A n -t x1 | sed 's/ //g'
