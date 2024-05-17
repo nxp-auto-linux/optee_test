@@ -6293,6 +6293,8 @@ static const uint8_t hse_magic[] = {
 #define HSE_ECC_PUB_GROUP	4
 #define HSE_ECC_PUB_SLOT	0
 
+#define HSE_STD_ECC_MAX_KEY_LEN 32
+#define HSE_STD_RSA_MAX_KEY_LEN 256
 #define KEY_INFO_INIT(group, slot, type, flags) \
 	{ \
 		.key_handle = (GET_KEY_HANDLE(HSE_KEY_CATALOG_ID_NVM, \
@@ -6761,7 +6763,21 @@ static void xtest_tee_test_4020(ADBG_Case_t *c)
 
 		switch (TEE_ALG_GET_MAIN_ALG(tv->algo)) {
 		case TEE_MAIN_ALGO_RSA:
+#if !(CFG_HSE_PREMIUM_FW)
+			if (tv->params.rsa.modulus_len > HSE_STD_RSA_MAX_KEY_LEN) {
+				Do_ADBG_Log("Skipping test %lu, key length %lu is greater than HSE maximum supported size\n", n, tv->params.rsa.modulus_len);
+				continue;
+			}
+#endif
+		break;
+
 		case TEE_MAIN_ALGO_ECDSA:
+#if !(CFG_HSE_PREMIUM_FW)
+			if (tv->params.ecc.public_x_len  > HSE_STD_ECC_MAX_KEY_LEN) {
+				Do_ADBG_Log("Skipping test %lu, key length %lu is greater than HSE maximum supported size\n", n, tv->params.ecc.public_x_len);
+				continue;
+			}
+#endif
 			break;
 		default:
 			continue;
