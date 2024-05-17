@@ -6409,8 +6409,12 @@ static void xtest_tee_test_4017(ADBG_Case_t *c)
 		key_info.key_handle = handle;
 		key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT;
 		key_info.key_type = HSE_KEY_TYPE_AES;
-		keys[0] = ciph_cases[n].key1;
-		provision_key_lengths[0] = ciph_cases[n].key1_len;
+		keys[0] = NULL;
+		keys[1] = NULL;
+		keys[2] = ciph_cases[n].key1;
+		provision_key_lengths[0] = 0;
+		provision_key_lengths[1] = 0;
+		provision_key_lengths[2] = ciph_cases[n].key1_len;
 
 		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
 			 &import_key_session, keys, provision_key_lengths, key_info)))
@@ -6473,8 +6477,12 @@ static void xtest_tee_test_4018(ADBG_Case_t *c)
 		key_info.key_handle = handle;
 		key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT;
 		key_info.key_type = HSE_KEY_TYPE_AES;
-		keys[0] = ae_cases[n].key;
-		provision_key_lengths[0] = ae_cases[n].key_len;
+		keys[0] = NULL;
+		keys[1] = NULL;
+		keys[2] = ae_cases[n].key;
+		provision_key_lengths[0] = 0;
+		provision_key_lengths[1] = 0;
+		provision_key_lengths[2] = ae_cases[n].key_len;
 
 		if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
 			 &import_key_session, keys, provision_key_lengths,
@@ -6546,8 +6554,12 @@ static void xtest_tee_test_4019(ADBG_Case_t *c)
 			key_info.key_flags = HSE_KF_USAGE_ENCRYPT | HSE_KF_USAGE_DECRYPT |
 					     HSE_KF_USAGE_SIGN | HSE_KF_USAGE_VERIFY;
 			key_info.key_type = HSE_KEY_TYPE_AES;
-			keys[0] = mac_cases[n].key;
-			provision_key_lengths[0] = mac_cases[n].key_len;
+			keys[0] = NULL;
+			keys[1] = NULL;
+			keys[2] = mac_cases[n].key;
+			provision_key_lengths[0] = 0;
+			provision_key_lengths[1] = 0;
+			provision_key_lengths[2] = mac_cases[n].key_len;
 			if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
 				&import_key_session, keys, provision_key_lengths, key_info)))
 				goto out;
@@ -6562,8 +6574,12 @@ static void xtest_tee_test_4019(ADBG_Case_t *c)
 			const uint8_t *keys[PROVISION_KEYS_NUM];
 			uint16_t provision_key_lengths[PROVISION_KEYS_NUM];
 
-			keys[0] = mac_cases[n].key;
-			provision_key_lengths[0] = mac_cases[n].key_len;
+			keys[0] = NULL;
+			keys[1] = NULL;
+			keys[2] = mac_cases[n].key;
+			provision_key_lengths[0] = 0;
+			provision_key_lengths[1] = 0;
+			provision_key_lengths[2] = mac_cases[n].key_len;
 			if (!ADBG_EXPECT_TEEC_SUCCESS(c, pta_hse_kp_cmd_key_provision(c,
 				&import_key_session, keys, provision_key_lengths, key_info)))
 				goto out;
