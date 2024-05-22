@@ -1147,7 +1147,7 @@ static void *test_1013_thread(void *arg)
 	return NULL;
 }
 
-#if defined(CFG_NXP_HSE)
+#if CFG_NXP_HSE
 #define NUM_THREADS 2
 #else
 #define NUM_THREADS 3

@@ -499,7 +499,11 @@ out:
 	return NULL;
 }
 
-#define NUM_THREADS	3
+#if CFG_NXP_HSE
+#define NUM_THREADS 2
+#else
+#define NUM_THREADS 3
+#endif
 
 static void xtest_tee_test_2002(ADBG_Case_t *c)
 {
