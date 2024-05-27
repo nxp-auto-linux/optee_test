@@ -15,6 +15,9 @@
 # Example for AES:
 # echo -n "S32G_the_coolest_Automotive_SoC!" | openssl enc -e -aes-256-ecb -K 0000000000000000000000000000000000000000000000000000000000000000 -out /tmp/kkmak
 
+# Example for HMAC:
+# echo -n "Hello world!" | openssl dgst -sha256 -mac hmac -macopt hexkey:01020304
+
 # Other tools
 # echo -n 'The_quick_brown_fox_jumped_over' | od -A n -t x1 | sed 's/ //g'
 

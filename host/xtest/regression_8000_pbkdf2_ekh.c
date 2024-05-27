@@ -204,7 +204,7 @@ static const uint8_t pbkdf2_1005_dkm[] = {
 /* Will use AES-ECB, no need for iv */
 static const uint8_t pbkdf2_1005_iv[] = {
 };
-/* The unit-test currently supports only blocksized text */
+/* The AES unit-test currently supports only blocksized text */
 static const uint8_t pbkdf2_1005_plaintext[] = {
 	'a', 'n', 't', 'h',
 	'r', 'o', 'p', 'o',
@@ -243,7 +243,7 @@ static const uint8_t pbkdf2_1006_dkm[] = {
 /* Will use AES-ECB, no need for iv */
 static const uint8_t pbkdf2_1006_iv[] = {
 };
-/* The unit-test currently supports only blocksized text */
+/* The AES unit-test currently supports only blocksized text */
 static const uint8_t pbkdf2_1006_plaintext[] = {
 	'e', 'x', 't', 'r',
 	'a', 't', 'e', 'r',
@@ -281,7 +281,7 @@ static const uint8_t pbkdf2_1007_dkm[] = {
 /* Will use AES-ECB, no need for iv */
 static const uint8_t pbkdf2_1007_iv[] = {
 };
-/* The unit-test currently supports only blocksized text */
+/* The AES unit-test currently supports only blocksized text */
 static const uint8_t pbkdf2_1007_plaintext[] = {
 	'c', 'h', 'e', 'm',
 	'i', 'l', 'u', 'm',
@@ -319,7 +319,7 @@ static const uint8_t pbkdf2_1008_dkm[] = {
 /* Will use AES-ECB, no need for iv */
 static const uint8_t pbkdf2_1008_iv[] = {
 };
-/* The unit-test currently supports only blocksized text */
+/* The AES unit-test currently supports only blocksized text */
 static const uint8_t pbkdf2_1008_plaintext[] = {
 	'a', 'b', 's', 'e',
 	'n', 't', 'm', 'i',
@@ -332,6 +332,111 @@ static const uint8_t pbkdf2_1008_ciphertext[] = {
 };
 /* ***********************************************************/
 
+/* Test vectors for derived keys exported as HMAC key handles.
+ * Currently all of them are for HMAC-256. Note this (HMAC-256)
+ * is independent of the actual PBKDF2 hash algorithm used for
+ * generating the key in the first place.
+ */
+/* ***********************************************************/
+
+/* 1106 */
+static const uint8_t pbkdf2_1106_password[] = {
+	'p', 'a', 's', 's', 'w', 'o', 'r', 'd',
+	'P', 'A', 'S', 'S', 'W', 'O', 'R', 'D',
+	'p', 'a', 's', 's', 'w', 'o', 'r', 'd'
+};
+static const uint8_t pbkdf2_1106_salt[] = {
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't'
+};
+#define pbkdf2_1106_iteration_count 4096
+/* Expected PBKDF2/SHA256 derived key (but it cannot be directly verified).
+ * Size of this array will indicate the required derived key length.
+ *
+ * Note: max supported by test is 32-byte, because of the particular
+ * keygroup allocation (256-bit key slots) we are using.
+ */
+static const uint8_t pbkdf2_1106_dkm[] = {
+	0x34, 0x8C, 0x89, 0xDB, 0xCB, 0xD3, 0x2B, 0x2F,
+	0x32, 0xD8, 0x14, 0xB8, 0x11, 0x6E, 0x84, 0xCF,
+	0x2B, 0x17, 0x34, 0x7E, 0xBC, 0x18, 0x00, 0x18,
+	0x1C, 0x4E, 0x2A, 0x1F, 0xB8, 0xDD, 0x53, 0xE1,
+};
+static const uint8_t pbkdf2_1106_iv[] = {
+};
+static const uint8_t pbkdf2_1106_plaintext[] = {
+	'p', 'h', 'y', 'l', 'o', 'g', 'e', 'n',
+	'e', 't', 'i', 'c', 'a', 'l', 'l', 'y',
+
+	'i', 'n', 'c', 'o', 'n', 't', 'r', 'o',
+	'v', 'e', 'r', 't', 'i', 'b', 'l', 'e',
+
+	'u', 'n', 'c', 'h', 'a', 'r', 'a', 'c',
+	't', 'e', 'r', 'i', 's', 't', 'i', 'c',
+
+	'p', 'h', 'o', 't', 'o', 'l', 'i', 't',
+	'h', 'o', 'g', 'r', 'a', 'p', 'h', 'y'
+};
+/* Hashed with SHA256 (independently of the HMAC used for PBKDF2) */
+static const uint8_t pbkdf2_1106_ciphertext[] = {
+	0x3b, 0xc0, 0xe9, 0xde, 0x31, 0xe4, 0xad, 0x12,
+	0xc2, 0xd3, 0xad, 0xa3, 0xa5, 0x1b, 0xb4, 0x1e,
+	0x6d, 0x64, 0xf2, 0x7f, 0xb2, 0x75, 0x47, 0x53,
+	0xb9, 0x8e, 0x45, 0xf3, 0xf3, 0x2c, 0x4d, 0x68
+};
+
+/* ***********************************************************/
+
+/* 1107 */
+static const uint8_t pbkdf2_1107_password[] = {
+	'p', 'a', 's', 's', 'w', 'o', 'r', 'd',
+	'P', 'A', 'S', 'S', 'W', 'O', 'R', 'D',
+	'p', 'a', 's', 's', 'w', 'o', 'r', 'd'
+};
+static const uint8_t pbkdf2_1107_salt[] = {
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't', 'S', 'A', 'L', 'T',
+	's', 'a', 'l', 't'
+};
+#define pbkdf2_1107_iteration_count 4096
+/* Expected PBKDF2/SHA512 derived key (but it cannot be directly verified).
+ * Size of this array will indicate the required derived key length.
+ *
+ * Note: max supported by test is 32-byte, because of the particular
+ * keygroup allocation (256-bit key slots) we are using.
+ */
+static const uint8_t pbkdf2_1107_dkm[] = {
+	0x8C, 0x05, 0x11, 0xF4, 0xC6, 0xE5, 0x97, 0xC6,
+	0xAC, 0x63, 0x15, 0xD8, 0xF0, 0x36, 0x2E, 0x22,
+	0x5F, 0x3C, 0x50, 0x14, 0x95, 0xBA, 0x23, 0xB8,
+	0x68, 0xC0, 0x05, 0x17, 0x4D, 0xC4, 0xEE, 0x71,
+};
+static const uint8_t pbkdf2_1107_iv[] = {
+};
+static const uint8_t pbkdf2_1107_plaintext[] = {
+	'c', 'i', 'r', 'c', 'u', 'm', 's', 't',
+	'a', 'n', 't', 'i', 'a', 'l', 'l', 'y',
+
+	'd' ,'i', 's', 'p', 'r', 'o', 'p', 'o',
+	'r', 't', 'i', 'o', 'n', 'a', 't', 'e',
+
+	'f', 'i', 'c', 't', 'i', 'o' ,'n', 'a',
+	'l', 'i', 's', 'a', 't', 'i', 'o', 'n'
+};
+/* Hashed with SHA256 (independently of the HMAC used for PBKDF2) */
+static const uint8_t pbkdf2_1107_ciphertext[] = {
+	0xba, 0x33, 0x4f, 0xd5, 0x8e, 0x1d, 0x81, 0x9d,
+	0xcd, 0x6d, 0xc8, 0x8c, 0x73, 0xda, 0x31, 0x90,
+	0xe7, 0x6d, 0xc5, 0xab, 0x00, 0xff, 0x3c, 0xbc,
+	0x21, 0x0b, 0xd6, 0xd5, 0xd6, 0x76, 0xa0, 0xba
+};
+
+/* ***********************************************************/
 /* Put the magic (metadata) and the key handle into the buffer, in preparation
  * for an HSE operation with opaque key handles support.
  *
@@ -344,7 +449,9 @@ static void fill_hse_key_handle(uint8_t *keybuf, const hseKeyHandle_t *kh)
 	memcpy(keybuf + HSE_MAGIC_SIZE, kh, sizeof(*kh));
 }
 
-/* Functions borrowed from regression_4000.c */
+/*
+ * Functions borrowed from regression_4000.c
+ */
 
 static TEEC_Result ta_crypt_cmd_cipher_init(ADBG_Case_t *c, TEEC_Session *s,
 					    TEE_OperationHandle oph,
@@ -478,12 +585,110 @@ static TEEC_Result pta_hse_kp_cmd_key_erase(ADBG_Case_t *c, TEEC_Session *sess,
 	return res;
 }
 
+static TEEC_Result ta_crypt_cmd_mac_init(ADBG_Case_t *c, TEEC_Session *s,
+					 TEE_OperationHandle oph,
+					 const void *iv, size_t iv_len)
+{
+	TEEC_Result res = TEEC_ERROR_GENERIC;
+	TEEC_Operation op = TEEC_OPERATION_INITIALIZER;
+	uint32_t ret_orig = 0;
+
+	assert((uintptr_t)oph <= UINT32_MAX);
+	op.params[0].value.a = (uint32_t)(uintptr_t)oph;
+
+	if (iv != NULL) {
+		op.params[1].tmpref.buffer = (void *)iv;
+		op.params[1].tmpref.size = iv_len;
+		op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT,
+						 TEEC_MEMREF_TEMP_INPUT,
+						 TEEC_NONE, TEEC_NONE);
+	} else {
+		op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT, TEEC_NONE,
+						 TEEC_NONE, TEEC_NONE);
+	}
+
+	res = TEEC_InvokeCommand(s, TA_CRYPT_CMD_MAC_INIT, &op, &ret_orig);
+
+	if (res != TEEC_SUCCESS) {
+		(void)ADBG_EXPECT_TEEC_ERROR_ORIGIN(c, TEEC_ORIGIN_TRUSTED_APP,
+						    ret_orig);
+	}
+
+	return res;
+}
+
+static TEEC_Result ta_crypt_cmd_mac_update(ADBG_Case_t *c, TEEC_Session *s,
+					   TEE_OperationHandle oph,
+					   const void *chunk, size_t chunk_size)
+{
+	TEEC_Result res = TEEC_ERROR_GENERIC;
+	TEEC_Operation op = TEEC_OPERATION_INITIALIZER;
+	uint32_t ret_orig = 0;
+
+	assert((uintptr_t)oph <= UINT32_MAX);
+	op.params[0].value.a = (uint32_t)(uintptr_t)oph;
+
+	op.params[1].tmpref.buffer = (void *)chunk;
+	op.params[1].tmpref.size = chunk_size;
+
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT,
+					 TEEC_MEMREF_TEMP_INPUT, TEEC_NONE,
+					 TEEC_NONE);
+
+	res = TEEC_InvokeCommand(s, TA_CRYPT_CMD_MAC_UPDATE, &op, &ret_orig);
+
+	if (res != TEEC_SUCCESS) {
+		(void)ADBG_EXPECT_TEEC_ERROR_ORIGIN(c, TEEC_ORIGIN_TRUSTED_APP,
+						    ret_orig);
+	}
+
+	return res;
+}
+
+static TEEC_Result ta_crypt_cmd_mac_final_compute(ADBG_Case_t *c,
+						  TEEC_Session *s,
+						  TEE_OperationHandle oph,
+						  const void *chunk,
+						  size_t chunk_len,
+						  void *hash,
+						  size_t *hash_len)
+{
+	TEEC_Result res = TEEC_ERROR_GENERIC;
+	TEEC_Operation op = TEEC_OPERATION_INITIALIZER;
+	uint32_t ret_orig = 0;
+
+	assert((uintptr_t)oph <= UINT32_MAX);
+	op.params[0].value.a = (uint32_t)(uintptr_t)oph;
+
+	op.params[1].tmpref.buffer = (void *)chunk;
+	op.params[1].tmpref.size = chunk_len;
+
+	op.params[2].tmpref.buffer = (void *)hash;
+	op.params[2].tmpref.size = *hash_len;
+
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_INPUT,
+					 TEEC_MEMREF_TEMP_INPUT,
+					 TEEC_MEMREF_TEMP_OUTPUT, TEEC_NONE);
+
+	res = TEEC_InvokeCommand(s, TA_CRYPT_CMD_MAC_FINAL_COMPUTE, &op,
+				 &ret_orig);
+
+	if (res != TEEC_SUCCESS) {
+		(void)ADBG_EXPECT_TEEC_ERROR_ORIGIN(c, TEEC_ORIGIN_TRUSTED_APP,
+						    ret_orig);
+	}
+
+	if (res == TEEC_SUCCESS)
+		*hash_len = op.params[2].tmpref.size;
+
+	return res;
+}
 /* ***********************************************************/
 
 void xtest_test_derivation_pbkdf2(ADBG_Case_t *c, TEEC_Session *session);
 
 /* Perform an indirect validation of the key pointed to (via its handle) by
- * ekh_dkm, by using it to encrypt a known buffer and comparing with the
+ * hse_kh, by using it to encrypt a known buffer and comparing with the
  * expected result stored in *pc.
  * Heavily borrowed from xtest_4000.c's xtest_ciph_operation().
  */
@@ -581,14 +786,83 @@ err_malloc:
 	return ret;
 } /* pbkdf2_validate_aes_key_handle() */
 
+/* Perform an indirect validation of the key in the indicated key slot, by
+ * using it to hash over a known buffer and comparing it with the expected
+ * result from the *pc vector.
+ */
 static TEEC_Result pbkdf2_validate_hmac_key_handle(ADBG_Case_t *c,
 						   TEEC_Session *session,
 						   hseKeyHandle_t *kh,
 						   const struct pbkdf2_case *pc)
 {
-	TEEC_Result ret = TEEC_ERROR_NOT_IMPLEMENTED;
+	TEEC_Result ret = TEEC_ERROR_GENERIC;
+	TEE_Attribute key_attr = { } ;
+	TEE_OperationHandle op;
+	TEE_ObjectHandle tee_kh;
+	const uint32_t algo = TEE_ALG_HMAC_SHA256;
+	const uint32_t mode = TEE_MODE_MAC;
+	const uint32_t key_type = TEE_TYPE_HMAC_SHA256;
+	uint8_t out[32] = {0};
+	size_t out_len = sizeof(out);
+	/* Modified buffer for embedded key operation */
+	uint8_t *ekh = NULL;
+	size_t ekh_size = pc->dkm_len, ekh_size_bits;
 
-	// TODO
+	Do_ADBG_Log("Validating HMAC key handle 0x%x\n", *kh); usleep(100000);
+	assert(ekh_size >= HSE_MAGIC_SIZE + sizeof(hseKeyHandle_t));
+	ekh = malloc(ekh_size);
+	if (!ekh) {
+		return TEEC_ERROR_OUT_OF_MEMORY;
+	}
+	fill_hse_key_handle(ekh, kh);
+
+	key_attr.attributeID = TEE_ATTR_SECRET_VALUE;
+	key_attr.content.ref.buffer = ekh;
+	key_attr.content.ref.length = ekh_size;
+	ekh_size_bits = key_attr.content.ref.length * 8;
+
+	ret = ta_crypt_cmd_allocate_operation(c, session, &op, algo, mode,
+					      ekh_size_bits);
+	ASSERT_RET(ret, err_allocate_operation);
+
+	ret = ta_crypt_cmd_allocate_transient_object(c, session, key_type,
+						     ekh_size_bits, &tee_kh);
+	ASSERT_RET(ret, err_allocate_transient_object);
+
+	ret = ta_crypt_cmd_populate_transient_object(c, session, tee_kh,
+						     &key_attr, 1);
+	ASSERT_RET(ret, err_populate_transient_object);
+
+	ret = ta_crypt_cmd_set_operation_key(c, session, op, tee_kh);
+	ASSERT_RET(ret, err_set_operation_key);
+
+	ret = ta_crypt_cmd_mac_init(c, session, op, NULL, 0);
+	ASSERT_RET(ret, err_mac_init);
+
+	/* Will process exactly one block. With our hard-coded SHA256 (see algo
+	 * and key_type), that would be 64-byte. */
+	ret = ta_crypt_cmd_mac_update(c, session, op, pc->plaintext,
+				      pc->plaintext_len);
+	ASSERT_RET(ret, err_mac_update);
+
+	ret = ta_crypt_cmd_mac_final_compute(c, session, op,
+					     pc->plaintext + pc->plaintext_len,
+					     0,
+					     out, &out_len);
+	ASSERT_RET(ret, err_mac_final_compute);
+
+	ADBG_EXPECT_BUFFER(c, pc->ciphertext, pc->ciphertext_len, out, out_len);
+
+err_mac_final_compute:
+err_mac_update:
+err_mac_init:
+err_set_operation_key:
+err_populate_transient_object:
+	ta_crypt_cmd_free_transient_object(c, session, tee_kh);
+err_allocate_transient_object:
+	ta_crypt_cmd_free_operation(c, session, op);
+err_allocate_operation:
+	free(ekh);
 
 	return ret;
 } /* pbkdf2_validate_hmac_key_handle() */
@@ -611,7 +885,20 @@ static void xtest_pbkdf2_main_ram_loop(ADBG_Case_t *c, TEEC_Session *session,
 	/* expected return buffer */
 	struct pbkdf2_derived_key_buf *ekh_dkm = NULL;
 	hseKeyHandle_t derived_kh;
-	hseKeyHandle_t dummy_ram_key_handle = DUMMY_RAM_AES_KEY_HANDLE;
+	hseKeyHandle_t dummy_ram_key_handle;
+
+
+	switch(pc->dkm_type) {
+	case HSE_KEY_TYPE_AES:
+		dummy_ram_key_handle = DUMMY_RAM_AES_KEY_HANDLE;
+		break;
+	case HSE_KEY_TYPE_HMAC:
+		dummy_ram_key_handle = DUMMY_RAM_HMAC_KEY_HANDLE;
+		break;
+	default:
+		ret = TEEC_ERROR_NOT_IMPLEMENTED;
+		goto out;
+	}
 
 	Do_ADBG_BeginSubCase(c, "PBKDF2 %s", pc->subcase_name);
 	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
@@ -823,13 +1110,9 @@ err_allocate_transient_object:
 } /* xtest_pbkdf2_main_nvm_loop() */
 
 /* Modified tests, using opaque key handles and involving an extra
- * verification step. Cases when the derived key's slot is stored in NVM
- * and in RAM are differentiated; in the former case, the application (here,
- * xtest) is required to preprovision the key; in the latter case, the OP-TEE
- * HSE driver allocates the key slot and returns it to the TA/xtest.
- *
- * xtest then takes an additional step of performing some crypto operation with
- * the indicated key handle and compare the result with its actual test vectors.
+ * verification step of performing some crypto operation with
+ * the indicated key handle and compare the result with its actual
+ * test vectors.
  */
 static void do_pbkdf2_embed_keyhandles_nvm(ADBG_Case_t *c, TEEC_Session *session)
 {
@@ -884,6 +1167,8 @@ static void do_pbkdf2_embed_keyhandles_ram(ADBG_Case_t *c, TEEC_Session *session
 		PBKDF2_EKH_RAM_TEST(0, 1006, SHA256,     AES, true),
 		PBKDF2_EKH_RAM_TEST(0, 1007, SHA512,     AES, true),
 		PBKDF2_EKH_RAM_TEST(0, 1008, SHA512_256, AES, true),
+		PBKDF2_EKH_RAM_TEST(0, 1106, SHA256,    HMAC, true),
+		PBKDF2_EKH_RAM_TEST(0, 1107, SHA512,    HMAC, true),
 	};
 
 	for (n = 0; n < sizeof(pbkdf2_cases) / sizeof(struct pbkdf2_case); n++) {
