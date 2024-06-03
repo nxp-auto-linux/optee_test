@@ -19,7 +19,6 @@
 #include <enc_fs_key_manager_test.h>
 
 
-#if defined(CFG_HSE_PBKDF2_EXPORT_DERIVED_KEY_DBG)
 #define TEST_PBKDF2_DATA(level, section, algo, id, oeb /* omit empty bufs */, run_test) \
 	{ \
 		level, section, TEE_ALG_PBKDF2_HMAC_##algo##_DERIVE_KEY, \
@@ -513,4 +512,3 @@ void xtest_test_derivation_pbkdf2(ADBG_Case_t *c, TEEC_Session *session)
 #undef _TO_STR
 #undef TO_STR
 #undef TEST_PBKDF2_DATA
-#endif /* CFG_HSE_PBKDF2_EXPORT_DERIVED_KEY_DBG */

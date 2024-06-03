@@ -55,8 +55,6 @@ set (SRC
 	regression_5000.c
 	regression_6000.c
 	regression_8000.c
-	regression_8000_pbkdf2_dbg.c
-	regression_8000_pbkdf2_ekh.c
 	regression_8100.c
 	hash_perf.c
 	stats.c
@@ -67,6 +65,12 @@ set (SRC
 )
 if(CFG_SECURE_PARTITION AND CFG_SPMC_TESTS)
 	list (APPEND SRC ffa_spmc_1000.c)
+endif()
+if(CFG_HSE_PBKDF2_EXPORT_DERIVED_KEY_DBG)
+	list (APPEND SRC regression_8000_pbkdf2_dbg.c)
+endif()
+if(CFG_HSE_EMBED_KEYHANDLES)
+	list (APPEND SRC regression_8000_pbkdf2_ekh.c)
 endif()
 
 if (WITH_GP_TESTS)

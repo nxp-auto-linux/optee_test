@@ -8,7 +8,6 @@
  * Copyright (c) 2014, STMicroelectronics International N.V.
  * Copyright 2024 NXP
  */
-#if defined(CFG_HSE_EMBED_KEYHANDLES)
 #include "xtest_test.h"
 #include "xtest_helpers.h"
 
@@ -1213,5 +1212,3 @@ void xtest_test_derivation_pbkdf2(ADBG_Case_t *c, TEEC_Session *session)
 	do_pbkdf2_embed_keyhandles_nvm(c, session);
 	do_pbkdf2_embed_keyhandles_ram(c, session);
 }
-
-#endif /* CFG_HSE_EMBED_KEYHANDLES */

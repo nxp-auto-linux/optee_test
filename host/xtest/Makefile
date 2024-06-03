@@ -66,8 +66,6 @@ srcs +=	adbg/src/adbg_case.c \
 	regression_5000.c \
 	regression_6000.c \
 	regression_8000.c \
-	regression_8000_pbkdf2_dbg.c \
-	regression_8000_pbkdf2_ekh.c \
 	regression_8100.c \
 	hash_perf.c \
 	stats.c \
@@ -75,6 +73,14 @@ srcs +=	adbg/src/adbg_case.c \
 	xtest_main.c \
 	xtest_test.c \
 	xtest_uuid_helpers.c
+
+ifeq ($(CFG_HSE_EMBED_KEYHANDLES),y)
+srcs += regression_8000_pbkdf2_ekh.c
+endif
+
+ifeq ($(CFG_HSE_PBKDF2_EXPORT_DERIVED_KEY_DBG),y)
+srcs += regression_8000_pbkdf2_dbg.c
+endif
 
 ifeq ($(CFG_SECURE_PARTITION)-$(CFG_SPMC_TESTS),y-y)
 srcs += ffa_spmc_1000.c
