@@ -111,12 +111,6 @@ struct pbkdf2_derived_key_buf {
 #undef TO_STR
 #endif
 #define TO_STR(n) _TO_STR(n)
-/* Convenience macro to keep the code a bit shorter */
-#ifdef ASSERT_RET
-#undef ASSERT_RET
-#endif
-#define ASSERT_RET(ret, label) \
-	do {if ((ret) != TEEC_SUCCESS) goto label; } while (0)
 
 struct pbkdf2_case {
 	/*
@@ -740,27 +734,33 @@ static TEEC_Result pbkdf2_validate_aes_key_handle(ADBG_Case_t *c,
 
 	ret = ta_crypt_cmd_allocate_operation(c, session, &op, algo, mode,
 					      ekh_key_size_bits);
-	ASSERT_RET(ret, err_allocate_operation);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_operation;
 
 	ret = ta_crypt_cmd_allocate_transient_object(c, session, key_type,
 						     ekh_key_size_bits, &tee_kh);
-	ASSERT_RET(ret, err_allocate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_transient_object;
 
 	ret = ta_crypt_cmd_populate_transient_object(c, session, tee_kh,
 						     &key_attr, 1);
-	ASSERT_RET(ret, err_populate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_populate_transient_object;
 
 	ret = ta_crypt_cmd_set_operation_key(c, session, op, tee_kh);
-	ASSERT_RET(ret, err_set_operation_key);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_set_operation_key;
 
 	ret = ta_crypt_cmd_cipher_init(c, session, op, iv, iv_len);
-	ASSERT_RET(ret, err_cipher_init);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_cipher_init;
 
 	/* we'll test-encrypt exactly one block */
 	ret = ta_crypt_cmd_cipher_update(c, session, op,
 					 plaintext, plaintext_len,
 					 out, &out_len);
-	ASSERT_RET(ret, err_cipher_update);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_cipher_update;
 	ADBG_EXPECT_COMPARE_UNSIGNED(c, out_len, ==, plaintext_len);
 
 	/* because we have been encrypting exactly one AES block, 'do_final'
@@ -768,7 +768,8 @@ static TEEC_Result pbkdf2_validate_aes_key_handle(ADBG_Case_t *c,
 	 */
 	ret = ta_crypt_cmd_cipher_do_final(c, session, op, plaintext + plaintext_len,
 					   0, out + out_len, &out_len);
-	ASSERT_RET(ret, err_cipher_do_final);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_cipher_do_final;
 
 	ADBG_EXPECT_BUFFER(c, pc->ciphertext, pc->ciphertext_len, out, pc->ciphertext_len);
 
@@ -823,33 +824,40 @@ static TEEC_Result pbkdf2_validate_hmac_key_handle(ADBG_Case_t *c,
 
 	ret = ta_crypt_cmd_allocate_operation(c, session, &op, algo, mode,
 					      ekh_size_bits);
-	ASSERT_RET(ret, err_allocate_operation);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_operation;
 
 	ret = ta_crypt_cmd_allocate_transient_object(c, session, key_type,
 						     ekh_size_bits, &tee_kh);
-	ASSERT_RET(ret, err_allocate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_transient_object;
 
 	ret = ta_crypt_cmd_populate_transient_object(c, session, tee_kh,
 						     &key_attr, 1);
-	ASSERT_RET(ret, err_populate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_populate_transient_object;
 
 	ret = ta_crypt_cmd_set_operation_key(c, session, op, tee_kh);
-	ASSERT_RET(ret, err_set_operation_key);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_set_operation_key;
 
 	ret = ta_crypt_cmd_mac_init(c, session, op, NULL, 0);
-	ASSERT_RET(ret, err_mac_init);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_mac_init;
 
 	/* Will process exactly one block. With our hard-coded SHA256 (see algo
 	 * and key_type), that would be 64-byte. */
 	ret = ta_crypt_cmd_mac_update(c, session, op, pc->plaintext,
 				      pc->plaintext_len);
-	ASSERT_RET(ret, err_mac_update);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_mac_update;
 
 	ret = ta_crypt_cmd_mac_final_compute(c, session, op,
 					     pc->plaintext + pc->plaintext_len,
 					     0,
 					     out, &out_len);
-	ASSERT_RET(ret, err_mac_final_compute);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_mac_final_compute;
 
 	ADBG_EXPECT_BUFFER(c, pc->ciphertext, pc->ciphertext_len, out, out_len);
 
@@ -910,7 +918,8 @@ static void xtest_pbkdf2_main_ram_loop(ADBG_Case_t *c, TEEC_Session *session,
 						     TEE_TYPE_PBKDF2_PASSWORD,
 						     max_size,
 						     &key_handle);
-	ASSERT_RET(ret, err_allocate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_transient_object;
 
 	/* Allocate metadata and the actual password */
 	ekh_pwd_len = pc->password_len + sizeof(ekh_pwd->metadata);
@@ -930,19 +939,23 @@ static void xtest_pbkdf2_main_ram_loop(ADBG_Case_t *c, TEEC_Session *session,
 
 	ret = ta_crypt_cmd_populate_transient_object(c, session, key_handle,
 						     params, param_count);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_set_operation_key(c, session, op, key_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_free_transient_object(c, session, key_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_allocate_transient_object(c, session,
 						    TEE_TYPE_GENERIC_SECRET,
 						    pc->dkm_len * 8,
 						    &sv_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	param_count = 0;
 	if (pc->salt)
@@ -957,14 +970,16 @@ static void xtest_pbkdf2_main_ram_loop(ADBG_Case_t *c, TEEC_Session *session,
 
 	ret = ta_crypt_cmd_derive_key(c, session, op, sv_handle, params,
 				      param_count);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	out_size = sizeof(out);
 	memset(out, 0, sizeof(out));
 	ret = ta_crypt_cmd_get_object_buffer_attribute(c, session, sv_handle,
 						       TEE_ATTR_SECRET_VALUE,
 						       out, &out_size);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ekh_dkm = (struct pbkdf2_derived_key_buf *)out;
 	derived_kh = ekh_dkm->key_handle;
@@ -1028,7 +1043,8 @@ static void xtest_pbkdf2_main_nvm_loop(ADBG_Case_t *c, TEEC_Session *session,
 						     TEE_TYPE_PBKDF2_PASSWORD,
 						     max_size,
 						     &key_handle);
-	ASSERT_RET(ret, err_allocate_transient_object);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto err_allocate_transient_object;
 
 	/* Allocate metadata and the actual password */
 	ekh_pwd_len = pc->password_len + sizeof(ekh_pwd->metadata);
@@ -1048,19 +1064,23 @@ static void xtest_pbkdf2_main_nvm_loop(ADBG_Case_t *c, TEEC_Session *session,
 
 	ret = ta_crypt_cmd_populate_transient_object(c, session, key_handle,
 						     params, param_count);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_set_operation_key(c, session, op, key_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_free_transient_object(c, session, key_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ret = ta_crypt_cmd_allocate_transient_object(c, session,
 						    TEE_TYPE_GENERIC_SECRET,
 						    pc->dkm_len * 8,
 						    &sv_handle);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	param_count = 0;
 	if (pc->salt)
@@ -1075,14 +1095,16 @@ static void xtest_pbkdf2_main_nvm_loop(ADBG_Case_t *c, TEEC_Session *session,
 
 	ret = ta_crypt_cmd_derive_key(c, session, op, sv_handle, params,
 				      param_count);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	out_size = sizeof(out);
 	memset(out, 0, sizeof(out));
 	ret = ta_crypt_cmd_get_object_buffer_attribute(c, session, sv_handle,
 						       TEE_ATTR_SECRET_VALUE,
 						       out, &out_size);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	ekh_dkm = (struct pbkdf2_derived_key_buf *)out;
 	derived_kh = ekh_dkm->key_handle;
@@ -1134,7 +1156,8 @@ static void do_pbkdf2_embed_keyhandles_nvm(ADBG_Case_t *c, TEEC_Session *session
 
 	ret = xtest_teec_open_session(&dummy_key_session, &pta_hse_kp_uuid,
 				      NULL, &origin);
-	ASSERT_RET(ret, out);
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c, ret))
+		goto out;
 
 	for (n = 0; n < sizeof(pbkdf2_cases) / sizeof(struct pbkdf2_case); n++) {
 		const struct pbkdf2_case *pc = &pbkdf2_cases[n];
