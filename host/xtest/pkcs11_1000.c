@@ -1670,11 +1670,17 @@ static CK_RV open_cipher_session(ADBG_Case_t *c,
 	return rv;
 }
 
+#if CFG_NXP_HSE
+#define SESSION_NO	7
+#else
+#define SESSION_NO	128
+#endif
+
 static void xtest_pkcs11_test_1007(ADBG_Case_t *c)
 {
 	CK_RV rv = CKR_GENERAL_ERROR;
 	CK_SLOT_ID slot = 0;
-	CK_SESSION_HANDLE sessions[128];
+	CK_SESSION_HANDLE sessions[SESSION_NO];
 	size_t n = 0;
 
 	for (n = 0; n < ARRAY_SIZE(sessions); n++)
@@ -6456,7 +6462,11 @@ static struct {
 	const void *data;
 	CK_ULONG data_size;
 } rsa_pkcs_sign_tests[] = {
-#ifndef CFG_CRYPTO_SE05X
+#ifdef CFG_CRYPTO_RSASSA_NA1
+	RSA_SIGN_TEST("CKM_RSA_PKCS", CKM_RSA_PKCS,
+		      digest_test_pattern_sha256),
+#endif
+#if !defined(CFG_CRYPTO_SE05X) && !defined(CFG_NXP_HSE)
 	RSA_SIGN_TEST("CKM_MD5_RSA_PKCS", CKM_MD5_RSA_PKCS,
 		      digest_test_pattern),
 #endif
@@ -6663,40 +6673,13 @@ static int test_rsa_pkcs_operations(ADBG_Case_t *c,
 
 	Do_ADBG_EndSubCase(c, NULL);
 
-	Do_ADBG_BeginSubCase(c,
-			     "%s: Sign & verify tests - oneshot - CKM_RSA_PKCS",
-			     rsa_name);
-
-	sign_mechanism.mechanism = CKM_RSA_PKCS;
-	memset(signature, 0, sizeof(signature));
-	signature_len = sizeof(signature);
-
-	rv = C_SignInit(session, &sign_mechanism, private_key);
-	if (!ADBG_EXPECT_CK_OK(c, rv))
-		goto err_destr_obj;
-
-	rv = C_Sign(session, (void *)digest_test_pattern_sha256,
-		    sizeof(digest_test_pattern_sha256), (void *)signature,
-		    &signature_len);
-	if (!ADBG_EXPECT_CK_OK(c, rv))
-		goto err_destr_obj;
-
-	rv = C_VerifyInit(session, &sign_mechanism, public_key);
-	if (!ADBG_EXPECT_CK_OK(c, rv))
-		goto err_destr_obj;
-
-	rv = C_Verify(session, (void *)digest_test_pattern_sha256,
-		      sizeof(digest_test_pattern_sha256), (void *)signature,
-		      signature_len);
-	if (!ADBG_EXPECT_CK_OK(c, rv))
-		goto err_destr_obj;
-
 	for (i = 0; i < ARRAY_SIZE(rsa_pkcs_sign_tests); i++) {
 		/*
 		 * Note: this order of end/begin here is just to get ADBG
 		 * SubCases in sync with error handling.
 		 */
-		Do_ADBG_EndSubCase(c, NULL);
+		if (i != 0)
+			Do_ADBG_EndSubCase(c, NULL);
 
 		Do_ADBG_BeginSubCase(c, "%s: Sign & verify - oneshot - %s",
 				     rsa_name,
